@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const App = @import("app.zig").App;
+const types = @import("types.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -14,12 +15,14 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 
-    // Build the zig build command
-    var build_args: std.ArrayList([]const u8) = .empty;
-    defer build_args.deinit(alloc);
+    // Build the zig build command (static array - TigerStyle: no heap for this)
+    var build_args_buf: [types.MAX_CMD_ARGS][]const u8 = undefined;
+    var build_args_len: u8 = 0;
 
-    try build_args.append(alloc, "zig");
-    try build_args.append(alloc, "build");
+    build_args_buf[build_args_len] = "zig";
+    build_args_len += 1;
+    build_args_buf[build_args_len] = "build";
+    build_args_len += 1;
 
     // Determine job name and pass through extra args
     var job_name: []const u8 = "build";
@@ -29,10 +32,12 @@ pub fn main() !void {
         const first_arg = args[1];
         if (std.mem.eql(u8, first_arg, "test")) {
             job_name = "test";
-            try build_args.append(alloc, "test");
+            build_args_buf[build_args_len] = "test";
+            build_args_len += 1;
         } else if (std.mem.eql(u8, first_arg, "run")) {
             job_name = "run";
-            try build_args.append(alloc, "run");
+            build_args_buf[build_args_len] = "run";
+            build_args_len += 1;
         } else if (std.mem.eql(u8, first_arg, "--help") or std.mem.eql(u8, first_arg, "-h")) {
             printHelp();
             return;
@@ -42,14 +47,18 @@ pub fn main() !void {
         } else {
             // Pass through all args to zig build
             for (args[1..]) |arg| {
-                try build_args.append(alloc, arg);
+                if (build_args_len >= types.MAX_CMD_ARGS) break;
+                build_args_buf[build_args_len] = arg;
+                build_args_len += 1;
             }
         }
 
         // Pass remaining args for special jobs too
         if (std.mem.eql(u8, first_arg, "test") or std.mem.eql(u8, first_arg, "run")) {
             for (args[2..]) |arg| {
-                try build_args.append(alloc, arg);
+                if (build_args_len >= types.MAX_CMD_ARGS) break;
+                build_args_buf[build_args_len] = arg;
+                build_args_len += 1;
             }
         }
     }
@@ -59,7 +68,7 @@ pub fn main() !void {
     defer app.deinit();
 
     // Configure
-    try app.setBuildArgs(build_args.items);
+    try app.setBuildArgs(build_args_buf[0..build_args_len]);
     app.setJobName(job_name);
 
     // Run initial build

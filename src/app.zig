@@ -364,25 +364,16 @@ pub const App = struct {
 
     /// Render the current state.
     fn renderView(self: *App) void {
-        const rpt = self.report();
+        render.render(
+            &self.vx,
+            self.report(),
+            &self.view,
+            self.watcher.active,
+            self.getJobName(),
+        );
+
         if (self.view.mode == .help) {
-            // Render help overlay on top
-            render.render(
-                &self.vx,
-                rpt,
-                &self.view,
-                self.watcher.active,
-                self.getJobName(),
-            );
             render.renderHelp(&self.vx);
-        } else {
-            render.render(
-                &self.vx,
-                rpt,
-                &self.view,
-                self.watcher.active,
-                self.getJobName(),
-            );
         }
     }
 };

@@ -199,6 +199,8 @@ pub const Report = struct {
     exit_code: ?u8,
     /// Whether the build was killed/interrupted
     was_killed: bool,
+    /// Cached terse line count (avoids O(n) iteration on every scroll/render)
+    cached_terse_count: usize,
 
     pub fn init() Report {
         return .{
@@ -211,6 +213,7 @@ pub const Report = struct {
             .stats = .{},
             .exit_code = null,
             .was_killed = false,
+            .cached_terse_count = 0,
         };
     }
 
@@ -221,6 +224,7 @@ pub const Report = struct {
         self.stats.reset();
         self.exit_code = null;
         self.was_killed = false;
+        self.cached_terse_count = 0;
     }
 
     /// Get the shared text buffer slice (for Line.getText)
@@ -271,9 +275,15 @@ pub const Report = struct {
     }
 
     /// Get visible line count based on view mode.
+    /// Uses cached value for terse mode to avoid O(n) iteration on every call.
     pub fn getVisibleCount(self: *const Report, expanded: bool) usize {
         if (expanded) return self.lines_len;
+        return self.cached_terse_count;
+    }
 
+    /// Compute and cache the terse line count.
+    /// Call this after parsing is complete.
+    pub fn computeTerseCount(self: *Report) void {
         var count: usize = 0;
         var prev_blank = false;
 
@@ -291,7 +301,7 @@ pub const Report = struct {
                 }
             }
         }
-        return count;
+        self.cached_terse_count = count;
     }
 };
 
@@ -324,12 +334,6 @@ pub const Job = struct {
 
     pub fn getName(self: *const Job) []const u8 {
         return self.name[0..self.name_len];
-    }
-
-    pub fn getArgs(self: *const Job) []const []const u8 {
-        // This needs to return slices - we'll handle this differently in practice
-        _ = self;
-        @panic("TODO: implement getArgs with proper slice handling");
     }
 
     pub fn setName(self: *Job, name: []const u8) void {

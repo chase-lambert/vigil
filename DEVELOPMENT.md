@@ -23,7 +23,7 @@ app.zig           Coordination hub
 | `types.zig` | Core data structures with fixed limits | ✅ Done |
 | `parse.zig` | Line classification, location parsing | ✅ Done |
 | `process.zig` | Run zig build, capture output | ✅ Done |
-| `watch.zig` | File watching (polling) | ✅ Basic |
+| `watch.zig` | File watching (polling, nested dirs) | ✅ Done |
 | `render.zig` | TUI rendering | ✅ Basic |
 | `input.zig` | Key handling | ✅ Done |
 | `app.zig` | Main loop, state coordination | ✅ Basic |
@@ -121,8 +121,10 @@ zig build-lib $(HOME)/.cache/zig/p/vaxis-*/src/main.zig --verbose-llvm-ir
 
 ### Why polling for file watching?
 
-Simple, works everywhere, adequate for this use case. Native watchers
-(inotify, FSEvents) can be added later as an optimization.
+Simple, works everywhere, adequate for this use case. The watcher now
+traverses nested subdirectories using an iterative stack-based approach
+(up to 8 levels deep). Native watchers (inotify, FSEvents) can be added
+later as an optimization.
 
 ### Why no regex?
 

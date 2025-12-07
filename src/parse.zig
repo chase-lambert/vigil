@@ -65,10 +65,11 @@ pub const Parser = struct {
         // Classify the line
         line.kind = self.classify(raw);
 
-        // Update item index for item headers
+        // Update item index and track item starts for navigation
         if (line.kind.isItemStart()) {
             self.current_item +|= 1;
             line.item_index = self.current_item;
+            report.appendItemStart(@intCast(report.lines_len)) catch {};
         }
 
         // Try to parse location for relevant line types
@@ -87,11 +88,6 @@ pub const Parser = struct {
             .test_pass => report.stats.tests_passed += 1,
             .test_fail => report.stats.tests_failed += 1,
             else => {},
-        }
-
-        // Track item starts for navigation
-        if (line.kind.isItemStart()) {
-            report.appendItemStart(@intCast(report.lines_len)) catch {};
         }
 
         // Store the line
@@ -320,6 +316,9 @@ pub fn parseOutput(output: []const u8, report: *Report) void {
         // parseLine now handles everything: text storage, stats, item tracking
         parser.parseLine(raw_line, .stderr, report) catch break;
     }
+
+    // Cache the terse line count for O(1) lookups
+    report.computeTerseCount();
 }
 
 // =============================================================================

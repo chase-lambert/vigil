@@ -76,24 +76,6 @@ pub fn defaultBuildArgs() []const []const u8 {
     return &[_][]const u8{ "zig", "build" };
 }
 
-/// Build the command arguments from a Job configuration.
-/// Caller owns returned memory.
-pub fn buildArgsFromJob(
-    alloc: std.mem.Allocator,
-    job: *const types.Job,
-) ![]const []const u8 {
-    var args = try std.ArrayList([]const u8).initCapacity(alloc, job.args_count);
-    errdefer args.deinit();
-
-    var i: u8 = 0;
-    while (i < job.args_count) : (i += 1) {
-        const arg = job.args[i][0..job.args_lens[i]];
-        try args.append(arg);
-    }
-
-    return args.toOwnedSlice();
-}
-
 // =============================================================================
 // Tests
 // =============================================================================

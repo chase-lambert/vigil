@@ -89,8 +89,18 @@ pub const Watcher = struct {
     }
 };
 
+/// Maximum depth for directory watching (TigerStyle: explicit bound)
+const MAX_WATCH_DEPTH: usize = 8;
+
+/// Entry in the directory traversal stack
+const DirStackEntry = struct {
+    dir: std.fs.Dir,
+    iter: std.fs.Dir.Iterator,
+};
+
 /// Get the modification time of a path.
-/// For directories, returns the newest mtime of any file within (non-recursive for now).
+/// For directories, iteratively finds the newest mtime of any file within.
+/// Uses explicit stack instead of recursion (TigerStyle: no recursion).
 fn getPathMtime(path: []const u8) i128 {
     const cwd = std.fs.cwd();
 
@@ -99,29 +109,51 @@ fn getPathMtime(path: []const u8) i128 {
         return stat.mtime;
     } else |_| {}
 
-    // Try as directory
-    var dir = cwd.openDir(path, .{ .iterate = true }) catch return 0;
-    defer dir.close();
+    // Try as directory - use explicit stack for traversal (no recursion)
+    var stack_buf: [MAX_WATCH_DEPTH]DirStackEntry = undefined;
+    var stack_len: usize = 0;
+
+    // Push initial directory
+    var root_dir = cwd.openDir(path, .{ .iterate = true }) catch return 0;
+    stack_buf[0] = .{ .dir = root_dir, .iter = root_dir.iterate() };
+    stack_len = 1;
 
     var newest: i128 = 0;
-    var iter = dir.iterate();
 
-    while (iter.next() catch null) |entry| {
-        // Skip hidden files and common ignore patterns
-        if (entry.name.len > 0 and entry.name[0] == '.') continue;
-        if (std.mem.eql(u8, entry.name, "zig-out")) continue;
-        if (std.mem.eql(u8, entry.name, ".zig-cache")) continue;
+    // Process stack iteratively
+    while (stack_len > 0) {
+        const top = &stack_buf[stack_len - 1];
 
-        // For files, check mtime
-        if (entry.kind == .file) {
-            if (dir.statFile(entry.name)) |stat| {
-                if (stat.mtime > newest) {
-                    newest = stat.mtime;
-                }
-            } else |_| {}
+        if (top.iter.next() catch null) |entry| {
+            // Skip hidden files and common ignore patterns
+            if (entry.name.len > 0 and entry.name[0] == '.') continue;
+            if (std.mem.eql(u8, entry.name, "zig-out")) continue;
+            if (std.mem.eql(u8, entry.name, "zig-cache")) continue;
+
+            switch (entry.kind) {
+                .file => {
+                    if (top.dir.statFile(entry.name)) |stat| {
+                        if (stat.mtime > newest) {
+                            newest = stat.mtime;
+                        }
+                    } else |_| {}
+                },
+                .directory => {
+                    // Push subdirectory onto stack if we have room
+                    if (stack_len < MAX_WATCH_DEPTH) {
+                        if (top.dir.openDir(entry.name, .{ .iterate = true })) |sub_dir| {
+                            stack_buf[stack_len] = .{ .dir = sub_dir, .iter = sub_dir.iterate() };
+                            stack_len += 1;
+                        } else |_| {}
+                    }
+                },
+                else => {},
+            }
+        } else {
+            // Directory exhausted, pop from stack
+            top.dir.close();
+            stack_len -= 1;
         }
-
-        // TODO: For directories, recurse (with depth limit)
     }
 
     return newest;
