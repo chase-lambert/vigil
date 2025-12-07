@@ -1,0 +1,16 @@
+.{
+    .name = .vigil,
+    .version = "0.1.0",
+    .fingerprint = 0x4b3d7ac3b82dd494,
+    .dependencies = .{
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis",
+            .hash = "vaxis-0.5.1-BWNV_CIyCQDMo4RMThsYxAA1is3p03DI0OGa2C4SypVH",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
