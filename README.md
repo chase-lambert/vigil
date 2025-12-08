@@ -139,15 +139,6 @@ src/
 └── input.zig     # Keyboard handling
 ```
 
-## Why Not Just Use Bacon?
-
-[Bacon](https://github.com/Canop/bacon) is excellent for Rust. Vigil is purpose-built for Zig:
-
-- Understands Zig's specific error format
-- No 50+ transitive dependencies
-- Compiles in <1 second
-- Potential for deeper `zig build` integration
-
 ## License
 
 MIT
