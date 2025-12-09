@@ -93,13 +93,11 @@ fn renderHeader(
     }, .{ .col_offset = col });
     col = result.col + 1;
 
-    // Watch indicator
+    // Watch indicator - only show when active
     if (watching) {
-        result = printText(win, "@ ", .{ .fg = colors.success_fg }, .{ .col_offset = col });
-    } else {
-        result = printText(win, "o ", .{ .fg = colors.muted }, .{ .col_offset = col });
+        result = printText(win, "watching ", .{ .fg = colors.success_fg }, .{ .col_offset = col });
+        col = result.col;
     }
-    col = result.col;
 
     // Job name
     result = printText(win, job_name, .{
@@ -227,13 +225,12 @@ fn renderFooter(
 
     // Help text based on mode
     const help = switch (view.mode) {
-        .normal => "j/k:scroll n/N:error space:toggle r:rebuild w:watch q:quit ?:help",
-        .searching => "enter:confirm esc:cancel",
-        .help => "q/esc:close",
-        .job_select => "1-9:select esc:cancel",
+        .normal => "? for help, q to quit",
+        .searching => "enter to confirm, esc to cancel",
+        .help => "q to close",
     };
 
-    _ = printFmt(win, "{s}  |  {d}/{d} lines", .{ help, visible, total }, .{ .fg = colors.muted }, .{});
+    _ = printFmt(win, "{s}  |  {d}/{d}", .{ help, visible, total }, .{ .fg = colors.muted }, .{});
 }
 
 /// Get the display color for a line type.

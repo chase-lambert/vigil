@@ -148,20 +148,6 @@ pub fn handleSearchMode(key: vaxis.Key, search_buf: *[types.MAX_SEARCH_LEN]u8, s
     return .none;
 }
 
-/// Process a key event in job select mode.
-pub fn handleJobSelectMode(key: vaxis.Key) Action {
-    if (key.matches(vaxis.Key.escape, .{})) {
-        return .cancel;
-    }
-
-    const cp = key.codepoint;
-    if (cp >= '1' and cp <= '9') {
-        return .{ .select_job = @intCast(cp - '1') };
-    }
-
-    return .none;
-}
-
 /// Dispatch to the appropriate handler based on current mode.
 pub fn handleKey(
     key: vaxis.Key,
@@ -173,6 +159,5 @@ pub fn handleKey(
         .normal => handleNormalMode(key),
         .help => handleHelpMode(key),
         .searching => handleSearchMode(key, search_buf, search_len),
-        .job_select => handleJobSelectMode(key),
     };
 }

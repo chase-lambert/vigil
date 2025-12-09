@@ -382,7 +382,6 @@ pub const ViewState = struct {
         normal,
         searching,
         help,
-        job_select,
     };
 
     pub fn init() ViewState {

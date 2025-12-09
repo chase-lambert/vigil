@@ -418,7 +418,7 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
 }
 ```
 
-Different modes (normal, help, searching, job_select) have different keybindings.
+Different modes (normal, help, searching) have different keybindings.
 
 ---
 
