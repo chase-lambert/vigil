@@ -121,20 +121,18 @@ Vigil is built on three pillars:
 - [x] Run zig build, capture output
 - [x] Line classification (error/warning/note/noise)
 - [x] Terse/full view toggle
-- [x] Scrolling
+- [x] Scrolling and error navigation (`n`/`N`)
 - [x] Manual rebuild (`r`)
 - [x] File watching (polling-based)
-- [x] Error navigation (`n`/`N`)
 - [x] Open in editor (`Enter`)
 - [x] Help overlay (`?`)
+- [x] Job switching (`b`/`t`/`x` for build/test/run)
+- [x] Test output parsing (Zig 0.15 format)
 
 ### Planned
-- [ ] Multiple jobs (test, run, custom)
-- [ ] Job switching
-- [ ] Search within output
+- [ ] Search within output (`/`)
 - [ ] Configuration file (vigil.zon)
-- [ ] Debounced rebuilds
-- [ ] Test output parsing
+- [ ] Show project name in header
 
 ## Architecture
 
