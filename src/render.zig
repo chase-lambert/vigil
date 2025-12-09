@@ -282,19 +282,18 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
     // Help content
     const help_lines = [_][]const u8{
         "",
-        "  j/down Scroll down",
-        "  k/up   Scroll up",
-        "  g/G    Top / Bottom",
-        "  n/N    Next / Previous error",
-        "  Enter  Open in $EDITOR",
-        "  Space  Toggle terse/full",
-        "  Tab    Cycle jobs",
-        "  r      Rebuild",
-        "  w      Toggle watching",
-        "  /      Search",
-        "  q      Quit",
+        "  j/k        Scroll down / up",
+        "  g/G        Jump to top / bottom",
+        "  n/N        Next / prev error",
         "",
-        "  Press q or ? to close",
+        "  Space      Toggle terse / full",
+        "  Enter      Open in $EDITOR",
+        "",
+        "  b/t/x      Switch to build / test / run",
+        "  r          Rebuild current job",
+        "  w          Toggle file watching",
+        "",
+        "  q          Quit",
     };
 
     for (help_lines, 0..) |line, i| {

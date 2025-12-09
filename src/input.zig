@@ -96,11 +96,11 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
         return .start_search;
     }
 
-    // Job shortcuts (1-9)
+    // Job shortcuts
     const cp = key.codepoint;
-    if (cp >= '1' and cp <= '9') {
-        return .{ .select_job = @intCast(cp - '1') };
-    }
+    if (cp == 't') return .{ .select_job = 1 }; // test
+    if (cp == 'b') return .{ .select_job = 0 }; // build
+    if (cp == 'x') return .{ .select_job = 2 }; // run
 
     return .none;
 }

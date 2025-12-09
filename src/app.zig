@@ -279,10 +279,8 @@ pub const App = struct {
                 self.view.mode = .normal;
                 self.needs_redraw = true;
             },
-            .select_job => |_| {
-                // TODO: Implement job selection
-                self.view.mode = .normal;
-                self.needs_redraw = true;
+            .select_job => |job_idx| {
+                self.switchJob(job_idx);
             },
         }
     }
@@ -325,6 +323,35 @@ pub const App = struct {
         self.view.scroll = line_idx;
 
         self.needs_redraw = true;
+    }
+
+    /// Switch to a different job (build=0, test=1, run=2).
+    fn switchJob(self: *App, job_idx: u8) void {
+        // Simple switch - no fancy comptime structs needed
+        switch (job_idx) {
+            0 => { // build
+                self.build_args_buf[0] = "zig";
+                self.build_args_buf[1] = "build";
+                self.build_args_len = 2;
+                self.setJobName("build");
+            },
+            1 => { // test
+                self.build_args_buf[0] = "zig";
+                self.build_args_buf[1] = "build";
+                self.build_args_buf[2] = "test";
+                self.build_args_len = 3;
+                self.setJobName("test");
+            },
+            2 => { // run
+                self.build_args_buf[0] = "zig";
+                self.build_args_buf[1] = "build";
+                self.build_args_buf[2] = "run";
+                self.build_args_len = 3;
+                self.setJobName("run");
+            },
+            else => return,
+        }
+        self.runBuild() catch {};
     }
 
     /// Open the current error location in $EDITOR.
