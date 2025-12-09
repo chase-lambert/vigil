@@ -23,29 +23,18 @@ const Stream = types.Stream;
 pub const Parser = struct {
     /// Current item index (incremented when we see an error/warning header)
     current_item: u16,
-    /// State machine for context-aware classification
-    state: State,
     /// Whether we're inside a "referenced by:" block
     in_reference_block: bool,
-
-    const State = enum {
-        normal,
-        after_error,
-        after_warning,
-        in_test_output,
-    };
 
     pub fn init() Parser {
         return .{
             .current_item = 0,
-            .state = .normal,
             .in_reference_block = false,
         };
     }
 
     pub fn reset(self: *Parser) void {
         self.current_item = 0;
-        self.state = .normal;
         self.in_reference_block = false;
     }
 
@@ -69,6 +58,8 @@ pub const Parser = struct {
         if (line.kind.isItemStart()) {
             self.current_item +|= 1;
             line.item_index = self.current_item;
+            // Note: if we exceed MAX_ITEMS, navigation won't work for later items
+            // but lines are still added to the report and visible. This is acceptable.
             report.appendItemStart(@intCast(report.lines_len)) catch {};
         }
 
@@ -129,11 +120,9 @@ pub const Parser = struct {
 
         // Error/warning/note with location pattern: "path:line:col: type:"
         if (std.mem.indexOf(u8, line, ": error:")) |_| {
-            self.state = .after_error;
             return .error_location;
         }
         if (std.mem.indexOf(u8, line, ": warning:")) |_| {
-            self.state = .after_warning;
             return .warning_location;
         }
         if (std.mem.indexOf(u8, line, ": note:")) |_| {
@@ -273,16 +262,36 @@ fn isPointerLine(line: []const u8) bool {
 }
 
 fn isTestPassLine(line: []const u8) bool {
-    // Pattern: "test_name... OK" or similar
-    return std.mem.endsWith(u8, line, "... OK") or
-        std.mem.endsWith(u8, line, "...OK");
+    // Direct test runner: "1/2 main.test.name...OK"
+    if (std.mem.endsWith(u8, line, "...OK")) return true;
+
+    // Build system summary: "+- run test 3/3 passed, 0 failed" (all pass)
+    if (std.mem.indexOf(u8, line, "run test") != null and
+        std.mem.indexOf(u8, line, "passed") != null and
+        std.mem.indexOf(u8, line, "0 failed") != null)
+    {
+        return true;
+    }
+
+    return false;
 }
 
 fn isTestFailLine(line: []const u8) bool {
-    // Pattern: "test_name... FAIL"
-    return std.mem.endsWith(u8, line, "... FAIL") or
-        std.mem.endsWith(u8, line, "...FAIL") or
-        std.mem.indexOf(u8, line, "FAILED") != null;
+    // Direct test runner: "2/2 main.test.name...FAIL (reason)"
+    if (std.mem.indexOf(u8, line, "...FAIL") != null) return true;
+
+    // Build system summary: "+- run test 2/3 passed, 1 failed"
+    if (std.mem.indexOf(u8, line, "run test") != null and
+        std.mem.indexOf(u8, line, "failed") != null)
+    {
+        // Make sure it's not "0 failed" (that's a pass)
+        if (std.mem.indexOf(u8, line, "0 failed") == null) return true;
+    }
+
+    // Individual test failure: "error: 'main.test.name' failed:"
+    if (std.mem.indexOf(u8, line, "' failed:") != null) return true;
+
+    return false;
 }
 
 fn looksLikeCode(line: []const u8) bool {
@@ -371,4 +380,26 @@ test "isPointerLine" {
     try std.testing.expect(!isPointerLine("hello world"));
     try std.testing.expect(!isPointerLine(""));
     try std.testing.expect(!isPointerLine("   ")); // Just spaces, no pointer chars
+}
+
+test "isTestPassLine" {
+    // Direct test runner format
+    try std.testing.expect(isTestPassLine("1/2 main.test.passing test one...OK"));
+    // Build system all-pass format
+    try std.testing.expect(isTestPassLine("+- run test 3/3 passed, 0 failed"));
+    // Not a pass
+    try std.testing.expect(!isTestPassLine("+- run test 2/3 passed, 1 failed"));
+    try std.testing.expect(!isTestPassLine("some random line"));
+}
+
+test "isTestFailLine" {
+    // Direct test runner format
+    try std.testing.expect(isTestFailLine("2/2 main.test.this test will fail...FAIL (TestUnexpectedResult)"));
+    // Build system with failures
+    try std.testing.expect(isTestFailLine("+- run test 2/3 passed, 1 failed"));
+    // Individual test failure header
+    try std.testing.expect(isTestFailLine("error: 'main.test.this test will fail' failed: ..."));
+    // Not failures
+    try std.testing.expect(!isTestFailLine("+- run test 3/3 passed, 0 failed"));
+    try std.testing.expect(!isTestFailLine("some random line"));
 }

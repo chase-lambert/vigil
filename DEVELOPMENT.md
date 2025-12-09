@@ -1,5 +1,16 @@
 # Vigil Development Notes
 
+## Core Philosophy
+
+**Simplicity, Elegance, and Craftsmanship**
+
+Every line of code should be simple, elegant, and intentional. We follow Zig's philosophy of explicit, predictable, transparent behavior. When in doubt, choose the boring solution.
+
+**Three Pillars:**
+1. **Simplicity & Elegance** - Delete ruthlessly. The best code is code that doesn't exist.
+2. **Data-Oriented Design** - Structure data for how it's accessed. Cache locality matters.
+3. **TigerStyle** - Fixed limits, static allocation, no regex, explicit bounds.
+
 ## Architecture Overview
 
 ```

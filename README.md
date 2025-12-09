@@ -95,8 +95,19 @@ Create `vigil.zon` in your project root:
 
 ## Design Philosophy
 
-Vigil follows [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md) principles:
+Vigil is built on three pillars:
 
+### Simplicity & Elegance
+- **Simple**: The simplest solution that works. No clever tricks.
+- **Elegant**: Clean, idiomatic Zig that reads like prose.
+- **Delete ruthlessly**: Dead code and "just in case" features don't belong here.
+
+### Data-Oriented Design
+- **Structure for access patterns**: Data layout optimized for how it's used
+- **Cache locality**: Contiguous arrays, minimal pointer chasing
+- **Shared buffers**: All line text in one buffer, lines store offsets
+
+### TigerStyle (adapted from [TigerBeetle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md))
 - **Single dependency**: Only libvaxis for TUI
 - **Static allocation**: Fixed limits, no runtime heap growth after init
 - **No regex**: Hand-written parsers for speed and clarity

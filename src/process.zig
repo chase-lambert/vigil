@@ -5,6 +5,7 @@
 //! async/polling for real-time output streaming.
 
 const std = @import("std");
+const assert = std.debug.assert;
 const types = @import("types.zig");
 
 /// Result of running a build command.
@@ -33,12 +34,12 @@ pub const BuildResult = struct {
 /// Returns the combined stderr (preferred) or stdout output.
 pub fn runBuild(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult {
     // Precondition: must have at least one argument
-    std.debug.assert(args.len > 0);
+    assert(args.len > 0);
 
     const result = try std.process.Child.run(.{
         .allocator = alloc,
         .argv = args,
-        .max_output_bytes = types.MAX_OUTPUT_SIZE,
+        .max_output_bytes = types.MAX_TEXT_SIZE,
     });
 
     // Prefer stderr (where errors go), fall back to stdout

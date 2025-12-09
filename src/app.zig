@@ -168,6 +168,7 @@ pub const App = struct {
 
         // Enter alternate screen
         try self.vx.enterAltScreen(writer);
+        // exitAltScreen in defer: if cleanup fails, we're exiting anyway
         defer self.vx.exitAltScreen(writer) catch {};
 
         // Query terminal capabilities and wait for responses
@@ -206,6 +207,7 @@ pub const App = struct {
         switch (event) {
             .key_press => |key| self.handleKey(key),
             .winsize => |ws| {
+                // Resize failure: display may be off until next successful resize
                 self.vx.resize(self.alloc, self.tty.writer(), ws) catch {};
                 self.needs_redraw = true;
             },

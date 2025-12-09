@@ -7,6 +7,7 @@
 //! - Shared text buffer: all line text in one contiguous buffer (cache-friendly)
 
 const std = @import("std");
+const assert = std.debug.assert;
 
 // =============================================================================
 // Limits (TigerStyle: put a limit on everything)
@@ -19,7 +20,6 @@ pub const MAX_ITEMS: usize = 1024;
 pub const MAX_JOBS: usize = 16;
 pub const MAX_WATCH_PATHS: usize = 64;
 pub const MAX_TEXT_SIZE: usize = 512 * 1024; // 512KB shared text buffer
-pub const MAX_OUTPUT_SIZE: usize = MAX_TEXT_SIZE; // Alias for backwards compat
 pub const MAX_SEARCH_LEN: usize = 64;
 pub const MAX_CMD_ARGS: usize = 32;
 
@@ -131,6 +131,8 @@ pub const Line = struct {
     /// Get the text content of this line.
     /// Requires the Report's text buffer since text is stored there, not inline.
     pub fn getText(self: *const Line, text_buf: []const u8) []const u8 {
+        // Precondition: offset must be within buffer
+        assert(self.text_offset <= text_buf.len);
         const end = @min(self.text_offset + self.text_len, text_buf.len);
         return text_buf[self.text_offset..end];
     }
@@ -249,15 +251,21 @@ pub const Report = struct {
         if (self.text_len + copy_len > MAX_TEXT_SIZE) return error.TextBufferFull;
 
         const offset = self.text_len;
+        // Precondition: offset in bounds (should be guaranteed by check above)
+        assert(offset + copy_len <= MAX_TEXT_SIZE);
         @memcpy(self.text_buf[offset .. offset + copy_len], text[0..copy_len]);
         self.text_len += @intCast(copy_len);
 
+        // Postcondition: text_len increased by exactly copy_len
+        assert(self.text_len == offset + copy_len);
         return .{ .offset = offset, .len = @intCast(copy_len) };
     }
 
     /// Append a line, returns error if full
     pub fn appendLine(self: *Report, line: Line) !void {
         if (self.lines_len >= MAX_LINES) return error.ReportFull;
+        // Precondition: line's text offset should be valid
+        assert(line.text_offset <= self.text_len);
         self.lines_buf[self.lines_len] = line;
         self.lines_len += 1;
     }
@@ -414,6 +422,13 @@ pub const WatchConfig = struct {
     /// Whether watching is enabled
     enabled: bool,
 
+    const DEFAULT_WATCH_PATHS = [_][]const u8{ "src", "build.zig", "build.zig.zon" };
+
+    // Prove at comptime that defaults can't overflow
+    comptime {
+        assert(DEFAULT_WATCH_PATHS.len <= MAX_WATCH_PATHS);
+    }
+
     pub fn init() WatchConfig {
         var config = WatchConfig{
             .paths = undefined,
@@ -422,10 +437,10 @@ pub const WatchConfig = struct {
             .debounce_ms = 100,
             .enabled = true,
         };
-        // Default: watch "src" and "build.zig"
-        config.addPath("src") catch {};
-        config.addPath("build.zig") catch {};
-        config.addPath("build.zig.zon") catch {};
+        // Default paths - comptime-verified to fit
+        for (DEFAULT_WATCH_PATHS) |path| {
+            config.addPath(path) catch unreachable; // Proven safe by comptime assert
+        }
         return config;
     }
 
@@ -439,7 +454,7 @@ pub const WatchConfig = struct {
     }
 
     pub fn getPath(self: *const WatchConfig, idx: usize) []const u8 {
-        std.debug.assert(idx < self.paths_count);
+        assert(idx < self.paths_count);
         return self.paths[idx][0..self.paths_lens[idx]];
     }
 };
@@ -451,14 +466,14 @@ pub const WatchConfig = struct {
 comptime {
     // Line should be small now (no inline text buffer)
     // Target: fit multiple Lines in a cache line (64 bytes)
-    std.debug.assert(@sizeOf(Line) <= 32);
+    assert(@sizeOf(Line) <= 32);
 
     // Report should be reasonable size for stack allocation
     // With shared text buffer approach: ~700KB total
     // - text_buf: 512KB
     // - lines_buf: 8192 * ~24 = ~196KB
     // - item_starts_buf: 1024 * 2 = 2KB
-    std.debug.assert(@sizeOf(Report) < 1024 * 1024); // < 1MB
+    assert(@sizeOf(Report) < 1024 * 1024); // < 1MB
 }
 
 // =============================================================================
