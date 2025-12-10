@@ -19,17 +19,24 @@ pub const colors = struct {
     pub const muted = vaxis.Color{ .rgb = .{ 0x88, 0x88, 0x88 } };
     pub const header_bg = vaxis.Color{ .rgb = .{ 0x33, 0x33, 0x44 } };
     pub const selected_bg = vaxis.Color{ .rgb = .{ 0x44, 0x44, 0x55 } };
+    // Test result colors
+    pub const pass_badge_bg = vaxis.Color{ .rgb = .{ 0x22, 0x88, 0x22 } };
+    pub const fail_badge_bg = vaxis.Color{ .rgb = .{ 0xcc, 0x44, 0x44 } };
+    pub const expected_fg = vaxis.Color{ .rgb = .{ 0x88, 0xcc, 0x88 } }; // Light green
+    pub const actual_fg = vaxis.Color{ .rgb = .{ 0xff, 0x88, 0x88 } }; // Light red
 };
 
-/// Helper to print a single text segment with style
+/// Helper to print a single text segment with style (no wrap by default for headers/footers)
 fn printText(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, opts: vaxis.Window.PrintOptions) vaxis.Window.PrintResult {
-    return win.print(&.{.{ .text = text, .style = style }}, opts);
+    var print_opts = opts;
+    print_opts.wrap = .none; // Prevent text from wrapping to next row
+    return win.print(&.{.{ .text = text, .style = style }}, print_opts);
 }
 
 /// Helper to format and print (uses a static buffer - TigerStyle)
 fn printFmt(win: vaxis.Window, comptime fmt: []const u8, args: anytype, style: vaxis.Cell.Style, opts: vaxis.Window.PrintOptions) vaxis.Window.PrintResult {
     var buf: [256]u8 = undefined;
-    const text = std.fmt.bufPrint(&buf, fmt, args) catch return .{ .col = 0, .row = 0, .overflow = true };
+    const text = std.fmt.bufPrint(&buf, fmt, args) catch return .{ .col = opts.col_offset, .row = opts.row_offset, .overflow = true };
     return printText(win, text, style, opts);
 }
 
@@ -69,91 +76,152 @@ pub fn render(
     renderFooter(footer_win, report, view);
 }
 
-/// Render the header bar with status badges.
+/// Render the header bar in Bacon style: project | job | status
+/// Uses writeCell character-by-character like the libvaxis examples do.
 fn renderHeader(
     win: vaxis.Window,
     report: *const types.Report,
-    view: *const types.ViewState,
+    _: *const types.ViewState,
     watching: bool,
     job_name: []const u8,
 ) void {
+    const Cell = vaxis.Cell;
+
+    // Colors - softer palette inspired by Bacon
+    const project_bg = vaxis.Color{ .rgb = .{ 0x88, 0x44, 0x88 } }; // Purple
+    const job_bg = vaxis.Color{ .rgb = .{ 0x44, 0x88, 0x88 } }; // Teal
+    const status_ok_bg = vaxis.Color{ .rgb = .{ 0x66, 0xcc, 0x66 } }; // Green
+    const status_fail_bg = vaxis.Color{ .rgb = .{ 0xcc, 0x66, 0x66 } }; // Red
+    const status_warn_bg = vaxis.Color{ .rgb = .{ 0xcc, 0xaa, 0x55 } }; // Orange
+    const watch_on_bg = vaxis.Color{ .rgb = .{ 0x55, 0x77, 0x55 } }; // Muted green
+    const watch_off_bg = vaxis.Color{ .rgb = .{ 0x77, 0x55, 0x55 } }; // Muted red
+    const white = vaxis.Color{ .rgb = .{ 0xff, 0xff, 0xff } };
+
     var col: u16 = 0;
 
-    // Mode badge
-    const mode_text = if (view.expanded) " FULL " else " TERSE ";
-    const mode_bg: vaxis.Color = if (view.expanded)
-        .{ .rgb = .{ 0x44, 0x44, 0x88 } }
+    // Helper: write a single character cell
+    const writeChar = struct {
+        fn f(w: vaxis.Window, c: u8, column: *u16, bg: vaxis.Color, fg: vaxis.Color) void {
+            if (column.* >= w.width) return;
+            // Create a static single-byte string for the grapheme
+            const grapheme: []const u8 = switch (c) {
+                ' ' => " ",
+                '!' => "!",
+                '0' => "0",
+                '1' => "1",
+                '2' => "2",
+                '3' => "3",
+                '4' => "4",
+                '5' => "5",
+                '6' => "6",
+                '7' => "7",
+                '8' => "8",
+                '9' => "9",
+                'a' => "a",
+                'b' => "b",
+                'c' => "c",
+                'd' => "d",
+                'e' => "e",
+                'f' => "f",
+                'g' => "g",
+                'h' => "h",
+                'i' => "i",
+                'l' => "l",
+                'n' => "n",
+                'o' => "o",
+                'p' => "p",
+                'r' => "r",
+                's' => "s",
+                't' => "t",
+                'u' => "u",
+                'v' => "v",
+                'w' => "w",
+                'x' => "x",
+                'K' => "K",
+                'O' => "O",
+                else => "?",
+            };
+            w.writeCell(column.*, 0, Cell{
+                .char = .{ .grapheme = grapheme, .width = 1 },
+                .style = .{ .bg = bg, .fg = fg, .bold = true },
+            });
+            column.* += 1;
+        }
+    }.f;
+
+    // 1. Project name: " vigil "
+    for (" vigil ") |c| writeChar(win, c, &col, project_bg, white);
+
+    // 2. Job name: " build " / " test " / " run "
+    writeChar(win, ' ', &col, job_bg, white);
+    for (job_name) |c| writeChar(win, c, &col, job_bg, white);
+    writeChar(win, ' ', &col, job_bg, white);
+
+    // 3. Status badge
+    const status_bg = if (report.stats.tests_failed > 0 or report.stats.errors > 0)
+        status_fail_bg
+    else if (report.stats.warnings > 0)
+        status_warn_bg
     else
-        .{ .rgb = .{ 0x44, 0x88, 0x44 } };
+        status_ok_bg;
 
-    var result = printText(win, mode_text, .{
-        .bg = mode_bg,
-        .fg = .{ .rgb = .{ 0xff, 0xff, 0xff } },
-        .bold = true,
-    }, .{ .col_offset = col });
-    col = result.col + 1;
-
-    // Watch indicator - only show when active
-    if (watching) {
-        result = printText(win, "watching ", .{ .fg = colors.success_fg }, .{ .col_offset = col });
-        col = result.col;
-    }
-
-    // Job name
-    result = printText(win, job_name, .{
-        .fg = colors.note_fg,
-        .bold = true,
-    }, .{ .col_offset = col });
-    col = result.col + 1;
-
-    // Error count badge
-    if (report.stats.errors > 0) {
-        const suffix: []const u8 = if (report.stats.errors == 1) " error " else " errors ";
-        result = printFmt(win, " {d}{s}", .{ report.stats.errors, suffix }, .{
-            .bg = .{ .rgb = .{ 0xcc, 0x44, 0x44 } },
-            .fg = .{ .rgb = .{ 0xff, 0xff, 0xff } },
-            .bold = true,
-        }, .{ .col_offset = col });
-        col = result.col + 1;
-    }
-
-    // Warning count badge
-    if (report.stats.warnings > 0) {
-        const suffix: []const u8 = if (report.stats.warnings == 1) " warning " else " warnings ";
-        result = printFmt(win, " {d}{s}", .{ report.stats.warnings, suffix }, .{
-            .bg = .{ .rgb = .{ 0xcc, 0x88, 0x22 } },
-            .fg = .{ .rgb = .{ 0xff, 0xff, 0xff } },
-            .bold = true,
-        }, .{ .col_offset = col });
-        col = result.col + 1;
-    }
-
-    // Test results
-    if (report.stats.tests_passed > 0 or report.stats.tests_failed > 0) {
-        if (report.stats.tests_failed > 0) {
-            result = printFmt(win, " {d} failed ", .{report.stats.tests_failed}, .{
-                .bg = .{ .rgb = .{ 0xcc, 0x44, 0x44 } },
-                .fg = .{ .rgb = .{ 0xff, 0xff, 0xff } },
-            }, .{ .col_offset = col });
-            col = result.col;
+    if (report.stats.tests_failed > 0) {
+        // " N fail "
+        writeChar(win, ' ', &col, status_bg, white);
+        // Write the number
+        var num = report.stats.tests_failed;
+        var digits: [8]u8 = undefined;
+        var digit_count: u8 = 0;
+        while (num > 0 or digit_count == 0) : (digit_count += 1) {
+            digits[digit_count] = @intCast((num % 10) + '0');
+            num /= 10;
         }
-        if (report.stats.tests_passed > 0) {
-            result = printFmt(win, " {d} passed ", .{report.stats.tests_passed}, .{
-                .bg = colors.success_bg,
-                .fg = colors.success_fg,
-            }, .{ .col_offset = col });
-            col = result.col;
+        var i: u8 = digit_count;
+        while (i > 0) {
+            i -= 1;
+            writeChar(win, digits[i], &col, status_bg, white);
         }
+        for (" fail ") |c| writeChar(win, c, &col, status_bg, white);
+    } else if (report.stats.errors > 0) {
+        writeChar(win, ' ', &col, status_bg, white);
+        var num = report.stats.errors;
+        var digits: [8]u8 = undefined;
+        var digit_count: u8 = 0;
+        while (num > 0 or digit_count == 0) : (digit_count += 1) {
+            digits[digit_count] = @intCast((num % 10) + '0');
+            num /= 10;
+        }
+        var i: u8 = digit_count;
+        while (i > 0) {
+            i -= 1;
+            writeChar(win, digits[i], &col, status_bg, white);
+        }
+        for (" error ") |c| writeChar(win, c, &col, status_bg, white);
+    } else if (report.stats.warnings > 0) {
+        writeChar(win, ' ', &col, status_bg, white);
+        var num = report.stats.warnings;
+        var digits: [8]u8 = undefined;
+        var digit_count: u8 = 0;
+        while (num > 0 or digit_count == 0) : (digit_count += 1) {
+            digits[digit_count] = @intCast((num % 10) + '0');
+            num /= 10;
+        }
+        var i: u8 = digit_count;
+        while (i > 0) {
+            i -= 1;
+            writeChar(win, digits[i], &col, status_bg, white);
+        }
+        for (" warn ") |c| writeChar(win, c, &col, status_bg, white);
+    } else if (report.stats.tests_passed > 0) {
+        for (" pass! ") |c| writeChar(win, c, &col, status_bg, white);
+    } else {
+        for (" OK ") |c| writeChar(win, c, &col, status_ok_bg, white);
     }
 
-    // Success message if clean build
-    if (report.stats.isSuccess() and report.lines_len > 0) {
-        _ = printText(win, " OK ", .{
-            .bg = colors.success_bg,
-            .fg = .{ .rgb = .{ 0xff, 0xff, 0xff } },
-            .bold = true,
-        }, .{ .col_offset = col });
-    }
+    // 4. Watch status
+    const watch_bg = if (watching) watch_on_bg else watch_off_bg;
+    const watch_text: []const u8 = if (watching) " watching " else " paused ";
+    for (watch_text) |c| writeChar(win, c, &col, watch_bg, white);
 }
 
 /// Render the main content area with build output.
@@ -240,7 +308,9 @@ fn getLineColor(kind: types.LineKind, expanded: bool) vaxis.Color {
         .warning_location => colors.warning_fg,
         .note_location => colors.note_fg,
         .test_pass => colors.success_fg,
-        .test_fail => colors.error_fg,
+        .test_fail, .test_fail_header => colors.error_fg,
+        .test_expected_value => colors.muted, // Will be rendered with special highlighting
+        .test_summary => colors.muted,
         .source_line, .pointer_line, .blank => .default,
         // In expanded mode, show filtered content in muted color
         else => if (expanded) colors.muted else .default,

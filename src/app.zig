@@ -286,7 +286,7 @@ pub const App = struct {
     }
 
     /// Scroll up by n lines.
-    fn scrollUp(self: *App, n: usize) void {
+    fn scrollUp(self: *App, n: u16) void {
         if (self.view.scroll >= n) {
             self.view.scroll -= n;
         } else {
@@ -296,7 +296,7 @@ pub const App = struct {
     }
 
     /// Scroll down by n lines.
-    fn scrollDown(self: *App, n: usize) void {
+    fn scrollDown(self: *App, n: u16) void {
         const max_scroll = self.report().getVisibleCount(self.view.expanded);
         self.view.scroll = @min(self.view.scroll + n, max_scroll);
         self.needs_redraw = true;

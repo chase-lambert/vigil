@@ -13,6 +13,7 @@ const LineKind = types.LineKind;
 const Location = types.Location;
 const Report = types.Report;
 const Stream = types.Stream;
+const TestFailure = types.TestFailure;
 
 // =============================================================================
 // Parser State
@@ -25,17 +26,25 @@ pub const Parser = struct {
     current_item: u16,
     /// Whether we're inside a "referenced by:" block
     in_reference_block: bool,
+    /// Current test failure being parsed (for associating expected/actual values)
+    current_test_failure: ?u8,
+    /// Running count of test failures for badge numbering
+    test_failure_count: u8,
 
     pub fn init() Parser {
         return .{
             .current_item = 0,
             .in_reference_block = false,
+            .current_test_failure = null,
+            .test_failure_count = 0,
         };
     }
 
     pub fn reset(self: *Parser) void {
         self.current_item = 0;
         self.in_reference_block = false;
+        self.current_test_failure = null;
+        self.test_failure_count = 0;
     }
 
     /// Parse a single line of output and add it to the report.
@@ -77,8 +86,37 @@ pub const Parser = struct {
             .warning_location => report.stats.warnings += 1,
             .note_location => report.stats.notes += 1,
             .test_pass => report.stats.tests_passed += 1,
-            .test_fail => report.stats.tests_failed += 1,
+            .test_fail, .test_fail_header => report.stats.tests_failed += 1,
             else => {},
+        }
+
+        // Extract test failure details for Bacon-style display
+        if (line.kind == .test_fail_header) {
+            self.test_failure_count += 1;
+            if (extractTestName(raw)) |name_info| {
+                var failure = TestFailure.init();
+                failure.line_index = report.lines_len;
+                failure.name_offset = text_info.offset + name_info.start;
+                failure.name_len = name_info.len;
+                failure.failure_number = self.test_failure_count;
+                report.appendTestFailure(failure) catch {};
+                self.current_test_failure = report.test_failures_len -| 1;
+            }
+        }
+
+        // Associate expected/actual values with current test failure
+        if (line.kind == .test_expected_value) {
+            if (self.current_test_failure) |idx| {
+                if (extractExpectedActual(raw)) |values| {
+                    var failures = report.testFailuresMut();
+                    if (idx < failures.len) {
+                        failures[idx].expected_offset = text_info.offset + values.expected_start;
+                        failures[idx].expected_len = values.expected_len;
+                        failures[idx].actual_offset = text_info.offset + values.actual_start;
+                        failures[idx].actual_len = values.actual_len;
+                    }
+                }
+            }
         }
 
         // Store the line
@@ -150,7 +188,10 @@ pub const Parser = struct {
         if (std.mem.indexOf(u8, line, "steps succeeded") != null) return .build_summary;
         if (std.mem.startsWith(u8, trimmed, "error: the following build command failed")) return .final_error;
 
-        // Test result patterns
+        // Test result patterns (order matters - check specific patterns first)
+        if (isTestFailHeader(line)) return .test_fail_header;
+        if (isTestSummaryLine(trimmed)) return .test_summary;
+        if (isExpectedValueLine(line)) return .test_expected_value;
         if (isTestPassLine(trimmed)) return .test_pass;
         if (isTestFailLine(trimmed)) return .test_fail;
 
@@ -280,18 +321,85 @@ fn isTestFailLine(line: []const u8) bool {
     // Direct test runner: "2/2 main.test.name...FAIL (reason)"
     if (std.mem.indexOf(u8, line, "...FAIL") != null) return true;
 
-    // Build system summary: "+- run test 2/3 passed, 1 failed"
-    if (std.mem.indexOf(u8, line, "run test") != null and
-        std.mem.indexOf(u8, line, "failed") != null)
-    {
-        // Make sure it's not "0 failed" (that's a pass)
-        if (std.mem.indexOf(u8, line, "0 failed") == null) return true;
-    }
-
-    // Individual test failure: "error: 'main.test.name' failed:"
-    if (std.mem.indexOf(u8, line, "' failed:") != null) return true;
-
     return false;
+}
+
+/// Check if line is a test failure header: "error: 'test.name' failed:"
+/// This is the detailed failure message (not the ...FAIL line)
+fn isTestFailHeader(line: []const u8) bool {
+    // Pattern: error: '<test_name>' failed:
+    if (std.mem.indexOf(u8, line, "error: '") == null) return false;
+    if (std.mem.indexOf(u8, line, "' failed:") == null) return false;
+    return true;
+}
+
+/// Check if line is a test summary: "+- run test N/M passed, K failed"
+fn isTestSummaryLine(line: []const u8) bool {
+    return std.mem.indexOf(u8, line, "run test") != null and
+        std.mem.indexOf(u8, line, "passed") != null;
+}
+
+/// Check if line contains expected/actual assertion values
+fn isExpectedValueLine(line: []const u8) bool {
+    const trimmed = std.mem.trimLeft(u8, line, " ");
+    // Pattern: "expected X, found Y"
+    return std.mem.startsWith(u8, trimmed, "expected ") and
+        std.mem.indexOf(u8, trimmed, ", found ") != null;
+}
+
+// =============================================================================
+// Test Name/Value Extraction
+// =============================================================================
+
+/// Extract test name from failure header
+/// Input: "error: 'main.test.my test name' failed: ..."
+/// Returns: offset and length of "main.test.my test name" in the line
+pub fn extractTestName(line: []const u8) ?struct { start: u16, len: u16 } {
+    const start_marker = "error: '";
+    const end_marker = "' failed:";
+
+    const marker_pos = std.mem.indexOf(u8, line, start_marker) orelse return null;
+    const name_start = marker_pos + start_marker.len;
+
+    const after_name = line[name_start..];
+    const name_len = std.mem.indexOf(u8, after_name, end_marker) orelse return null;
+
+    return .{
+        .start = @intCast(name_start),
+        .len = @intCast(name_len),
+    };
+}
+
+/// Extract expected and actual values from assertion line
+/// Input: "expected 42, found 4"
+/// Returns: offsets for expected ("42") and actual ("4") values
+pub fn extractExpectedActual(line: []const u8) ?struct {
+    expected_start: u16,
+    expected_len: u16,
+    actual_start: u16,
+    actual_len: u16,
+} {
+    const trimmed = std.mem.trimLeft(u8, line, " ");
+    const base_offset: u16 = @intCast(line.len - trimmed.len);
+
+    // Pattern: "expected X, found Y"
+    const expected_prefix = "expected ";
+    const found_marker = ", found ";
+    if (!std.mem.startsWith(u8, trimmed, expected_prefix)) return null;
+
+    const after_expected = trimmed[expected_prefix.len..];
+    const comma_pos = std.mem.indexOf(u8, after_expected, found_marker) orelse return null;
+
+    const expected_value_len: u16 = @intCast(comma_pos);
+    const actual_start_in_trimmed: u16 = @intCast(expected_prefix.len + comma_pos + found_marker.len);
+    const actual_value = trimmed[actual_start_in_trimmed..];
+
+    return .{
+        .expected_start = base_offset + @as(u16, @intCast(expected_prefix.len)),
+        .expected_len = expected_value_len,
+        .actual_start = base_offset + actual_start_in_trimmed,
+        .actual_len = @intCast(actual_value.len),
+    };
 }
 
 fn looksLikeCode(line: []const u8) bool {
@@ -354,7 +462,7 @@ test "classify error line" {
     var parser = Parser.init();
     var report = Report.init();
     try parser.parseLine("src/main.zig:42:13: error: expected type 'u32'", .stderr, &report);
-    try std.testing.expectEqual(@as(usize, 1), report.lines_len);
+    try std.testing.expectEqual(@as(u16, 1), report.lines_len);
     try std.testing.expectEqual(LineKind.error_location, report.lines()[0].kind);
 }
 
@@ -362,7 +470,7 @@ test "classify build tree" {
     var parser = Parser.init();
     var report = Report.init();
     try parser.parseLine("└─ compile exe example Debug native", .stderr, &report);
-    try std.testing.expectEqual(@as(usize, 1), report.lines_len);
+    try std.testing.expectEqual(@as(u16, 1), report.lines_len);
     try std.testing.expectEqual(LineKind.build_tree, report.lines()[0].kind);
 }
 
@@ -370,7 +478,7 @@ test "classify pointer line" {
     var parser = Parser.init();
     var report = Report.init();
     try parser.parseLine("            ~~~~~~~~~~^~~~", .stderr, &report);
-    try std.testing.expectEqual(@as(usize, 1), report.lines_len);
+    try std.testing.expectEqual(@as(u16, 1), report.lines_len);
     try std.testing.expectEqual(LineKind.pointer_line, report.lines()[0].kind);
 }
 
@@ -393,13 +501,47 @@ test "isTestPassLine" {
 }
 
 test "isTestFailLine" {
-    // Direct test runner format
+    // Direct test runner format: "N/M test.name...FAIL"
     try std.testing.expect(isTestFailLine("2/2 main.test.this test will fail...FAIL (TestUnexpectedResult)"));
-    // Build system with failures
-    try std.testing.expect(isTestFailLine("+- run test 2/3 passed, 1 failed"));
-    // Individual test failure header
-    try std.testing.expect(isTestFailLine("error: 'main.test.this test will fail' failed: ..."));
-    // Not failures
-    try std.testing.expect(!isTestFailLine("+- run test 3/3 passed, 0 failed"));
+    // Not failures (these are now separate line kinds)
+    try std.testing.expect(!isTestFailLine("+- run test 2/3 passed, 1 failed")); // Now test_summary
+    try std.testing.expect(!isTestFailLine("error: 'main.test.foo' failed: ...")); // Now test_fail_header
     try std.testing.expect(!isTestFailLine("some random line"));
+}
+
+test "isTestFailHeader" {
+    // Pattern: error: 'test_name' failed:
+    try std.testing.expect(isTestFailHeader("error: 'main.test.this test will fail' failed: expected 42, found 4"));
+    try std.testing.expect(isTestFailHeader("error: 'test.simple' failed:"));
+    // Not failure headers
+    try std.testing.expect(!isTestFailHeader("error: compilation failed"));
+    try std.testing.expect(!isTestFailHeader("2/2 main.test.foo...FAIL"));
+}
+
+test "isTestSummaryLine" {
+    try std.testing.expect(isTestSummaryLine("+- run test 3/3 passed, 0 failed"));
+    try std.testing.expect(isTestSummaryLine("+- run test 2/3 passed, 1 failed"));
+    try std.testing.expect(isTestSummaryLine("run test 1/2 passed, 1 failed"));
+    try std.testing.expect(!isTestSummaryLine("some random line"));
+    try std.testing.expect(!isTestSummaryLine("2/2 main.test.foo...FAIL"));
+}
+
+test "extractTestName" {
+    const result = extractTestName("error: 'main.test.my test name' failed: expected 42");
+    try std.testing.expect(result != null);
+    const info = result.?;
+    // The name starts after "error: '"
+    try std.testing.expectEqual(@as(u16, 8), info.start);
+    try std.testing.expectEqual(@as(u16, 22), info.len); // "main.test.my test name" = 22 chars
+}
+
+test "extractExpectedActual" {
+    const result = extractExpectedActual("  expected 42, found 4");
+    try std.testing.expect(result != null);
+    const info = result.?;
+    // expected starts at offset 2 (spaces) + 9 ("expected ") = 11
+    try std.testing.expectEqual(@as(u16, 11), info.expected_start);
+    try std.testing.expectEqual(@as(u16, 2), info.expected_len); // "42"
+    // actual starts after ", found "
+    try std.testing.expectEqual(@as(u16, 1), info.actual_len); // "4"
 }

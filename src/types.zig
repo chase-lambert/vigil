@@ -22,6 +22,7 @@ pub const MAX_WATCH_PATHS: usize = 64;
 pub const MAX_TEXT_SIZE: usize = 512 * 1024; // 512KB shared text buffer
 pub const MAX_SEARCH_LEN: usize = 64;
 pub const MAX_CMD_ARGS: usize = 32;
+pub const MAX_TEST_FAILURES: usize = 64;
 
 // =============================================================================
 // Line Classification
@@ -36,10 +37,13 @@ pub const LineKind = enum(u8) {
     note_location, // "path:line:col: note: message"
     source_line, // indented source code snippet
     pointer_line, // "    ~~~^~~~" error indicator
-    test_pass, // "test_name... OK"
-    test_fail, // "test_name... FAIL"
+    test_fail, // "N/M test_name...FAIL" (direct runner)
+    test_fail_header, // "error: 'test_name' failed:" (failure details)
+    test_expected_value, // "expected X, found Y" (assertion details)
+    test_summary, // "+- run test N/M passed, K failed"
 
     // === Hidden in terse mode ===
+    test_pass, // "test_name... OK" - hidden for cleaner Bacon-style display
     build_tree, // "└─ compile exe..."
     referenced_by, // "referenced by:" section
     command_dump, // the massive zig build-exe command
@@ -56,11 +60,14 @@ pub const LineKind = enum(u8) {
             .note_location,
             .source_line,
             .pointer_line,
-            .test_pass,
             .test_fail,
+            .test_fail_header,
+            .test_expected_value,
+            .test_summary,
             .blank,
             => true,
 
+            .test_pass, // Hidden for cleaner Bacon-style display
             .build_tree,
             .referenced_by,
             .command_dump,
@@ -74,7 +81,7 @@ pub const LineKind = enum(u8) {
     /// Returns true if this is an "item header" (starts a new logical item).
     pub fn isItemStart(self: LineKind) bool {
         return switch (self) {
-            .error_location, .warning_location, .test_fail => true,
+            .error_location, .warning_location, .test_fail, .test_fail_header => true,
             else => false,
         };
     }
@@ -104,6 +111,62 @@ pub const Location = struct {
     pub fn getPath(self: Location, line_content: []const u8) []const u8 {
         const end = @min(self.path_start + self.path_len, line_content.len);
         return line_content[self.path_start..end];
+    }
+};
+
+// =============================================================================
+// Test Failure Details (for Bacon-style display)
+// =============================================================================
+
+/// Parsed test failure information for structured display.
+/// Stores offsets into Report.text_buf, not strings themselves (data-oriented).
+pub const TestFailure = struct {
+    /// Index of the test_fail_header line in lines_buf
+    line_index: u16,
+    /// Test name: offset into text_buf where name starts
+    name_offset: u32,
+    name_len: u16,
+    /// Expected value (if extracted): offset into text_buf
+    expected_offset: u32,
+    expected_len: u16,
+    /// Actual value (if extracted): offset into text_buf
+    actual_offset: u32,
+    actual_len: u16,
+    /// Failure number (1-indexed, for badge display like Bacon's [1], [2])
+    failure_number: u8,
+
+    pub fn init() TestFailure {
+        return .{
+            .line_index = 0,
+            .name_offset = 0,
+            .name_len = 0,
+            .expected_offset = 0,
+            .expected_len = 0,
+            .actual_offset = 0,
+            .actual_len = 0,
+            .failure_number = 0,
+        };
+    }
+
+    /// Get the test name from the shared text buffer.
+    pub fn getName(self: TestFailure, text_buf: []const u8) []const u8 {
+        if (self.name_len == 0) return "";
+        const end = @min(self.name_offset + self.name_len, text_buf.len);
+        return text_buf[self.name_offset..end];
+    }
+
+    /// Get the expected value from the shared text buffer.
+    pub fn getExpected(self: TestFailure, text_buf: []const u8) []const u8 {
+        if (self.expected_len == 0) return "";
+        const end = @min(self.expected_offset + self.expected_len, text_buf.len);
+        return text_buf[self.expected_offset..end];
+    }
+
+    /// Get the actual value from the shared text buffer.
+    pub fn getActual(self: TestFailure, text_buf: []const u8) []const u8 {
+        if (self.actual_len == 0) return "";
+        const end = @min(self.actual_offset + self.actual_len, text_buf.len);
+        return text_buf[self.actual_offset..end];
     }
 };
 
@@ -191,10 +254,10 @@ pub const Report = struct {
     text_len: u32,
     /// All parsed lines (fixed-size buffer)
     lines_buf: [MAX_LINES]Line,
-    lines_len: usize,
+    lines_len: u16, // Max 8192 lines
     /// Item start indices for navigation between errors (fixed-size buffer)
     item_starts_buf: [MAX_ITEMS]u16,
-    item_starts_len: usize,
+    item_starts_len: u16, // Max 1024 items
     /// Statistics
     stats: Stats,
     /// Exit code from the build command
@@ -202,7 +265,10 @@ pub const Report = struct {
     /// Whether the build was killed/interrupted
     was_killed: bool,
     /// Cached terse line count (avoids O(n) iteration on every scroll/render)
-    cached_terse_count: usize,
+    cached_terse_count: u16, // Max 8192 lines
+    /// Test failure details for Bacon-style display
+    test_failures_buf: [MAX_TEST_FAILURES]TestFailure,
+    test_failures_len: u8, // Max 64 failures
 
     pub fn init() Report {
         return .{
@@ -216,6 +282,8 @@ pub const Report = struct {
             .exit_code = null,
             .was_killed = false,
             .cached_terse_count = 0,
+            .test_failures_buf = undefined,
+            .test_failures_len = 0,
         };
     }
 
@@ -227,6 +295,7 @@ pub const Report = struct {
         self.exit_code = null;
         self.was_killed = false;
         self.cached_terse_count = 0;
+        self.test_failures_len = 0;
     }
 
     /// Get the shared text buffer slice (for Line.getText)
@@ -282,9 +351,26 @@ pub const Report = struct {
         self.item_starts_len += 1;
     }
 
+    /// Get the slice of test failures
+    pub fn testFailures(self: *const Report) []const TestFailure {
+        return self.test_failures_buf[0..self.test_failures_len];
+    }
+
+    /// Get mutable slice of test failures (for updating expected/actual)
+    pub fn testFailuresMut(self: *Report) []TestFailure {
+        return self.test_failures_buf[0..self.test_failures_len];
+    }
+
+    /// Append a test failure, returns error if full
+    pub fn appendTestFailure(self: *Report, failure: TestFailure) !void {
+        if (self.test_failures_len >= MAX_TEST_FAILURES) return error.TooManyTestFailures;
+        self.test_failures_buf[self.test_failures_len] = failure;
+        self.test_failures_len += 1;
+    }
+
     /// Get visible line count based on view mode.
     /// Uses cached value for terse mode to avoid O(n) iteration on every call.
-    pub fn getVisibleCount(self: *const Report, expanded: bool) usize {
+    pub fn getVisibleCount(self: *const Report, expanded: bool) u16 {
         if (expanded) return self.lines_len;
         return self.cached_terse_count;
     }
@@ -292,7 +378,7 @@ pub const Report = struct {
     /// Compute and cache the terse line count.
     /// Call this after parsing is complete.
     pub fn computeTerseCount(self: *Report) void {
-        var count: usize = 0;
+        var count: u16 = 0;
         var prev_blank = false;
 
         for (self.lines()) |line| {
@@ -367,7 +453,7 @@ pub const Job = struct {
 /// Current view/UI state.
 pub const ViewState = struct {
     /// Scroll position (line offset)
-    scroll: usize,
+    scroll: u16, // Max 8192 lines
     /// Currently selected item index (for navigation)
     selected_item: u16,
     /// Whether we're in expanded (full) view
@@ -498,6 +584,6 @@ test "Stats" {
 
 test "Report.init" {
     const report = Report.init();
-    try std.testing.expectEqual(@as(usize, 0), report.lines_len);
-    try std.testing.expectEqual(@as(usize, 0), report.item_starts_len);
+    try std.testing.expectEqual(@as(u16, 0), report.lines_len);
+    try std.testing.expectEqual(@as(u16, 0), report.item_starts_len);
 }

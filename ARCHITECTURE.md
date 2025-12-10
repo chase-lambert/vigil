@@ -16,6 +16,7 @@ From [TigerBeetle's style guide](https://github.com/tigerbeetle/tigerbeetle/blob
 
 - **Fixed limits**: `MAX_LINES = 8192`, `MAX_TEXT_SIZE = 512KB`, etc.
 - **Static arrays**: `_buf`/`_len` pattern instead of dynamic containers
+- **Explicit types**: Use `u16`, `u32` etc. instead of `usize` for determinism
 - **No regex**: Hand-written matchers for speed and clarity
 - **Assertions**: Pre/post conditions, defensive programming
 - **Static allocation**: Large structs in `.bss` segment, not heap
@@ -72,7 +73,7 @@ app.zig           Coordination hub (imperative shell)
 ```zig
 // Instead of ArrayList or BoundedArray:
 lines_buf: [MAX_LINES]Line,
-lines_len: usize,
+lines_len: u16,  // Explicit type, not usize
 
 pub fn lines(self: *const Report) []const Line {
     return self.lines_buf[0..self.lines_len];
@@ -104,7 +105,7 @@ const Report = struct {
     text_buf: [512 * 1024]u8,  // All text here
     text_len: u32,
     lines_buf: [8192]Line,     // Just metadata
-    lines_len: usize,
+    lines_len: u16,            // Explicit type, not usize
 };
 ```
 
