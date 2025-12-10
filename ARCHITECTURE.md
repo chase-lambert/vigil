@@ -167,3 +167,47 @@ Trade-off between TigerStyle (no heap) and pure functional (no globals). We chos
 - Keep everything else pure
 
 This is "functional core, imperative shell"—decision-making is pure, mutation is centralized.
+
+## Test Failure Display
+
+Test failures use structured parsing to extract useful information:
+
+### Data Flow
+```
+Zig output: "error: 'test.name' failed: expected 42, found 4"
+                    ↓ parse.zig
+TestFailure struct: { name, expected_offset, actual_offset, ... }
+                    ↓ render.zig
+Display:    [1] failed: test.name
+            expected: 42
+               found: 4
+```
+
+### Stack Trace Filtering
+
+Zig test failures produce verbose stack traces with internal std.testing frames:
+
+```
+/home/user/.zvm/0.15.2/lib/std/testing.zig:110:17: 0x... in expectEqualInner
+                return error.TestExpectedEqual;
+                ^
+/home/user/project/src/main.zig:26:5: 0x... in test.simple test
+    try std.testing.expectEqual(@as(i32, 42), list.pop());
+    ^
+```
+
+**Terse mode** shows only user code, hiding std library frames:
+- Detects `/lib/std/` in path → classifies as `test_internal_frame`
+- Tracks `in_std_frame_context` state so context lines (source + pointer) are also hidden
+- Strips project root from paths, removes memory addresses (`0x...`)
+
+**Verbose mode** shows everything (full paths, all frames).
+
+### Project Detection
+
+Project name comes from `build.zig.zon`:
+```zig
+.name = .myproject,  // Zig 0.15 enum literal format
+```
+
+Parsed at startup in `app.detectProject()`. Falls back to directory name if no build.zig.zon.

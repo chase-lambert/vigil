@@ -48,6 +48,12 @@ pub const App = struct {
     current_job_name: [32]u8,
     current_job_name_len: u8,
 
+    // Project info (detected from build.zig.zon)
+    project_name: [64]u8,
+    project_name_len: u8,
+    project_root: [types.MAX_PATH_LEN]u8,
+    project_root_len: u16,
+
     // Terminal
     vx: vaxis.Vaxis,
     tty: vaxis.Tty,
@@ -69,6 +75,10 @@ pub const App = struct {
             .build_args_len = 0,
             .current_job_name = undefined,
             .current_job_name_len = 0,
+            .project_name = undefined,
+            .project_name_len = 0,
+            .project_root = undefined,
+            .project_root_len = 0,
             .vx = undefined,
             .tty = undefined,
             .tty_buf = undefined,
@@ -85,6 +95,9 @@ pub const App = struct {
 
         // Set default job name
         app.setJobName("build");
+
+        // Detect project name from build.zig.zon
+        app.detectProject();
 
         return app;
     }
@@ -109,6 +122,104 @@ pub const App = struct {
 
     pub fn getJobName(self: *const App) []const u8 {
         return self.current_job_name[0..self.current_job_name_len];
+    }
+
+    /// Get project name (from build.zig.zon or fallback to directory name).
+    pub fn getProjectName(self: *const App) []const u8 {
+        if (self.project_name_len == 0) return "project";
+        return self.project_name[0..self.project_name_len];
+    }
+
+    /// Get project root path.
+    pub fn getProjectRoot(self: *const App) []const u8 {
+        return self.project_root[0..self.project_root_len];
+    }
+
+    /// Detect project info from build.zig.zon in current directory.
+    fn detectProject(self: *App) void {
+        // Get current working directory as project root
+        if (std.fs.cwd().realpathAlloc(self.alloc, ".")) |cwd| {
+            defer self.alloc.free(cwd);
+            const len = @min(cwd.len, self.project_root.len);
+            @memcpy(self.project_root[0..len], cwd[0..len]);
+            self.project_root_len = @intCast(len);
+        } else |_| {}
+
+        // Try to read build.zig.zon and extract name
+        const file = std.fs.cwd().openFile("build.zig.zon", .{}) catch {
+            // Fallback: use directory name as project name
+            self.extractDirName();
+            return;
+        };
+        defer file.close();
+
+        // Read first 1KB (name should be near the top)
+        var buf: [1024]u8 = undefined;
+        const bytes_read = file.readAll(&buf) catch {
+            self.extractDirName();
+            return;
+        };
+
+        // Parse ".name = .identifier" (Zig 0.15 enum literal style)
+        if (self.parseZonName(buf[0..bytes_read])) |name| {
+            const len = @min(name.len, self.project_name.len);
+            @memcpy(self.project_name[0..len], name[0..len]);
+            self.project_name_len = @intCast(len);
+        } else {
+            self.extractDirName();
+        }
+    }
+
+    /// Parse project name from build.zig.zon content.
+    /// Handles both ".name = .identifier" (0.15) and ".name = \"string\"" (older)
+    fn parseZonName(self: *App, content: []const u8) ?[]const u8 {
+        _ = self;
+        // Look for ".name = "
+        const name_marker = ".name = ";
+        const pos = std.mem.indexOf(u8, content, name_marker) orelse return null;
+        const after_marker = content[pos + name_marker.len ..];
+
+        if (after_marker.len == 0) return null;
+
+        // Check format: .identifier (enum literal) or "string"
+        if (after_marker[0] == '.') {
+            // Enum literal: .name = .identifier
+            const start = 1; // Skip the dot
+            var end: usize = start;
+            while (end < after_marker.len) : (end += 1) {
+                const c = after_marker[end];
+                if (!std.ascii.isAlphanumeric(c) and c != '_') break;
+            }
+            if (end > start) {
+                return after_marker[start..end];
+            }
+        } else if (after_marker[0] == '"') {
+            // String literal: .name = "string"
+            const start = 1; // Skip opening quote
+            const end_quote = std.mem.indexOf(u8, after_marker[start..], "\"") orelse return null;
+            return after_marker[start .. start + end_quote];
+        }
+
+        return null;
+    }
+
+    /// Extract project name from directory name as fallback.
+    fn extractDirName(self: *App) void {
+        if (self.project_root_len == 0) return;
+        const root = self.project_root[0..self.project_root_len];
+
+        // Find last path separator
+        var last_sep: usize = 0;
+        for (root, 0..) |c, i| {
+            if (c == '/' or c == '\\') last_sep = i + 1;
+        }
+
+        const dir_name = root[last_sep..];
+        if (dir_name.len > 0) {
+            const len = @min(dir_name.len, self.project_name.len);
+            @memcpy(self.project_name[0..len], dir_name[0..len]);
+            self.project_name_len = @intCast(len);
+        }
     }
 
     /// Set build arguments (static buffer - TigerStyle).
@@ -399,6 +510,8 @@ pub const App = struct {
             &self.view,
             self.watcher.active,
             self.getJobName(),
+            self.getProjectName(),
+            self.getProjectRoot(),
         );
 
         if (self.view.mode == .help) {

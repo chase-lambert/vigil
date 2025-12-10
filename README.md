@@ -65,11 +65,13 @@ vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 - [x] Help overlay (`?`)
 - [x] Job switching (`b`/`t`/`x` for build/test/run)
 - [x] Test output parsing (Zig 0.15 format)
+- [x] Bacon-style test failure display (`expected:`/`found:` values)
+- [x] Project name detection from `build.zig.zon`
+- [x] Clean stack traces (strips std library frames in terse mode)
 
 ### Planned
 - [ ] Search within output (`/`)
 - [ ] Configuration file (vigil.zon)
-- [ ] Show project name in header
 
 ## Architecture
 

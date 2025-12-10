@@ -33,6 +33,8 @@ pub const Parser = struct {
     /// Lines remaining to capture after note_location (source + pointer)
     /// Zig's note context lines have NO indentation unlike error context
     note_context_remaining: u8,
+    /// Whether current context lines belong to a std library frame (hide in terse)
+    in_std_frame_context: bool,
 
     pub fn init() Parser {
         return .{
@@ -41,6 +43,7 @@ pub const Parser = struct {
             .current_test_failure = null,
             .test_failure_count = 0,
             .note_context_remaining = 0,
+            .in_std_frame_context = false,
         };
     }
 
@@ -50,6 +53,7 @@ pub const Parser = struct {
         self.current_test_failure = null;
         self.test_failure_count = 0;
         self.note_context_remaining = 0;
+        self.in_std_frame_context = false;
     }
 
     /// Parse a single line of output and add it to the report.
@@ -104,6 +108,16 @@ pub const Parser = struct {
                 failure.name_offset = text_info.offset + name_info.start;
                 failure.name_len = name_info.len;
                 failure.failure_number = self.test_failure_count;
+
+                // Also extract expected/actual from the header line itself
+                // Zig format: "error: 'test.name' failed: expected 42, found 4"
+                if (extractExpectedActual(raw)) |values| {
+                    failure.expected_offset = text_info.offset + values.expected_start;
+                    failure.expected_len = values.expected_len;
+                    failure.actual_offset = text_info.offset + values.actual_start;
+                    failure.actual_len = values.actual_len;
+                }
+
                 report.appendTestFailure(failure) catch {};
                 self.current_test_failure = report.test_failures_len -| 1;
             }
@@ -134,6 +148,7 @@ pub const Parser = struct {
         if (line.len == 0) {
             self.in_reference_block = false;
             self.note_context_remaining = 0;
+            self.in_std_frame_context = false;
             return .blank;
         }
 
@@ -150,11 +165,16 @@ pub const Parser = struct {
                 std.mem.indexOf(u8, line, ": warning:") == null and
                 !std.mem.startsWith(u8, trimmed, "referenced by:"))
             {
+                // If this context belongs to a std library frame, hide it
+                if (self.in_std_frame_context) {
+                    return .test_internal_frame;
+                }
                 if (isPointerLine(trimmed)) return .pointer_line;
                 return .source_line;
             }
             // It's another location line, stop expecting context
             self.note_context_remaining = 0;
+            self.in_std_frame_context = false;
         }
 
         // "referenced by:" starts a block we want to hide
@@ -180,16 +200,37 @@ pub const Parser = struct {
         }
 
         // Error/warning/note with location pattern: "path:line:col: type:"
+        // Check for std library frames (noise in test output) - hide in terse mode
+        const is_std_frame = std.mem.indexOf(u8, line, "/lib/std/") != null or
+            std.mem.indexOf(u8, line, "lib/std/") != null;
+
         if (std.mem.indexOf(u8, line, ": error:")) |_| {
-            return .error_location;
+            self.in_std_frame_context = is_std_frame;
+            return if (is_std_frame) .test_internal_frame else .error_location;
         }
         if (std.mem.indexOf(u8, line, ": warning:")) |_| {
-            return .warning_location;
+            self.in_std_frame_context = is_std_frame;
+            return if (is_std_frame) .test_internal_frame else .warning_location;
         }
         if (std.mem.indexOf(u8, line, ": note:")) |_| {
+            self.in_std_frame_context = is_std_frame;
             // Start expecting 2 context lines (source + pointer)
             self.note_context_remaining = 2;
+            if (is_std_frame) {
+                return .test_internal_frame;
+            }
             return .note_location;
+        }
+
+        // Stack trace location lines: "path:line:col: 0x... in function_name"
+        // These appear in test failure output and have a hex address after the location
+        if (isStackTraceLocation(line)) {
+            self.in_std_frame_context = is_std_frame;
+            self.note_context_remaining = 2; // Expect source + pointer lines after
+            if (is_std_frame) {
+                return .test_internal_frame;
+            }
+            return .note_location; // Treat user stack frames like notes
         }
 
         // Build tree noise (unicode box drawing characters)
@@ -372,6 +413,23 @@ fn isExpectedValueLine(line: []const u8) bool {
         std.mem.indexOf(u8, trimmed, ", found ") != null;
 }
 
+/// Check if line is a stack trace location: "path:line:col: 0x... in func_name"
+/// Pattern: contains ".zig:" followed by digits, colon, digits, colon, space, "0x"
+fn isStackTraceLocation(line: []const u8) bool {
+    // Must contain .zig: (a zig file location)
+    const zig_pos = std.mem.indexOf(u8, line, ".zig:") orelse return false;
+
+    // After .zig: we expect "line:col: 0x" pattern
+    const after_zig = line[zig_pos + 5 ..];
+
+    // Find the ": 0x" pattern that indicates a stack trace address
+    if (std.mem.indexOf(u8, after_zig, ": 0x")) |_| {
+        return true;
+    }
+
+    return false;
+}
+
 // =============================================================================
 // Test Name/Value Extraction
 // =============================================================================
@@ -395,8 +453,8 @@ pub fn extractTestName(line: []const u8) ?struct { start: u16, len: u16 } {
     };
 }
 
-/// Extract expected and actual values from assertion line
-/// Input: "expected 42, found 4"
+/// Extract expected and actual values from assertion line or test failure header
+/// Input: "expected 42, found 4" OR "error: 'test' failed: expected 42, found 4"
 /// Returns: offsets for expected ("42") and actual ("4") values
 pub fn extractExpectedActual(line: []const u8) ?struct {
     expected_start: u16,
@@ -404,25 +462,30 @@ pub fn extractExpectedActual(line: []const u8) ?struct {
     actual_start: u16,
     actual_len: u16,
 } {
-    const trimmed = std.mem.trimLeft(u8, line, " ");
-    const base_offset: u16 = @intCast(line.len - trimmed.len);
-
-    // Pattern: "expected X, found Y"
-    const expected_prefix = "expected ";
+    // Pattern: "expected X, found Y" - can be anywhere in the line
+    const expected_marker = "expected ";
     const found_marker = ", found ";
-    if (!std.mem.startsWith(u8, trimmed, expected_prefix)) return null;
 
-    const after_expected = trimmed[expected_prefix.len..];
+    // Find "expected " in the line
+    const expected_pos = std.mem.indexOf(u8, line, expected_marker) orelse return null;
+
+    // The value starts right after "expected "
+    const value_start = expected_pos + expected_marker.len;
+    const after_expected = line[value_start..];
+
+    // Find ", found " after the expected value
     const comma_pos = std.mem.indexOf(u8, after_expected, found_marker) orelse return null;
 
     const expected_value_len: u16 = @intCast(comma_pos);
-    const actual_start_in_trimmed: u16 = @intCast(expected_prefix.len + comma_pos + found_marker.len);
-    const actual_value = trimmed[actual_start_in_trimmed..];
+
+    // The actual value starts after ", found "
+    const actual_start: u16 = @intCast(value_start + comma_pos + found_marker.len);
+    const actual_value = line[actual_start..];
 
     return .{
-        .expected_start = base_offset + @as(u16, @intCast(expected_prefix.len)),
+        .expected_start = @intCast(value_start),
         .expected_len = expected_value_len,
-        .actual_start = base_offset + actual_start_in_trimmed,
+        .actual_start = actual_start,
         .actual_len = @intCast(actual_value.len),
     };
 }
@@ -560,13 +623,24 @@ test "extractTestName" {
     try std.testing.expectEqual(@as(u16, 22), info.len); // "main.test.my test name" = 22 chars
 }
 
-test "extractExpectedActual" {
+test "extractExpectedActual standalone" {
     const result = extractExpectedActual("  expected 42, found 4");
     try std.testing.expect(result != null);
     const info = result.?;
-    // expected starts at offset 2 (spaces) + 9 ("expected ") = 11
+    // "  expected 42, found 4"
+    //            ^-- expected_start = 11 (after "  expected ")
     try std.testing.expectEqual(@as(u16, 11), info.expected_start);
     try std.testing.expectEqual(@as(u16, 2), info.expected_len); // "42"
-    // actual starts after ", found "
+    try std.testing.expectEqual(@as(u16, 1), info.actual_len); // "4"
+}
+
+test "extractExpectedActual from header" {
+    const result = extractExpectedActual("error: 'main.test.foo' failed: expected 42, found 4");
+    try std.testing.expect(result != null);
+    const info = result.?;
+    // "error: 'main.test.foo' failed: expected 42, found 4"
+    //                                          ^-- expected_start = 40 (after "expected ")
+    try std.testing.expectEqual(@as(u16, 40), info.expected_start);
+    try std.testing.expectEqual(@as(u16, 2), info.expected_len); // "42"
     try std.testing.expectEqual(@as(u16, 1), info.actual_len); // "4"
 }

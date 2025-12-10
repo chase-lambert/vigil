@@ -44,6 +44,7 @@ pub const LineKind = enum(u8) {
 
     // === Hidden in terse mode ===
     test_pass, // "test_name... OK" - hidden for cleaner Bacon-style display
+    test_internal_frame, // std.testing.zig frames - noise, hide in terse
     build_tree, // "└─ compile exe..."
     referenced_by, // "referenced by:" section
     command_dump, // the massive zig build-exe command
@@ -68,6 +69,7 @@ pub const LineKind = enum(u8) {
             => true,
 
             .test_pass, // Hidden for cleaner Bacon-style display
+            .test_internal_frame, // std library stack frames
             .build_tree,
             .referenced_by,
             .command_dump,

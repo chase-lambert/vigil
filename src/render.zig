@@ -166,7 +166,38 @@ fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style
     }
 }
 
-/// Render a test failure line in Bacon style: [N] failed: test_name
+/// Clean up a stack trace location line for terse display.
+/// Input: "/full/path/to/project/src/main.zig:26:5: 0x10356a8 in test.name (main.zig)"
+/// Output: "src/main.zig:26:5" (relative path and location, no memory address)
+/// Uses project_root to strip the absolute path prefix.
+fn cleanStackTraceLine(text: []const u8, project_root: []const u8) []const u8 {
+    // First, find where the useful part ends (before ": 0x" memory address)
+    const end_pos = std.mem.indexOf(u8, text, ": 0x") orelse text.len;
+    const path_part = text[0..end_pos];
+
+    // Try to strip project root prefix (including trailing slash)
+    if (project_root.len > 0) {
+        if (std.mem.startsWith(u8, path_part, project_root)) {
+            var start = project_root.len;
+            // Skip trailing slash if present
+            if (start < path_part.len and path_part[start] == '/') {
+                start += 1;
+            }
+            return path_part[start..];
+        }
+    }
+
+    // Fallback: find "src/" to get relative path
+    if (std.mem.indexOf(u8, path_part, "src/")) |src_pos| {
+        return path_part[src_pos..];
+    }
+
+    // Last resort: just strip the memory address part
+    return path_part;
+}
+
+/// Render a test failure in Bacon style with expected/actual values.
+/// Returns the number of rows used.
 fn renderTestFailureLine(
     win: vaxis.Window,
     line: types.Line,
@@ -174,17 +205,23 @@ fn renderTestFailureLine(
     row: u16,
     bg_color: vaxis.Color,
     line_idx: u16,
-) void {
+    max_rows: u16,
+) u16 {
     const text_buf = report.textBuf();
     var col: u16 = 0;
+    var rows_used: u16 = 0;
 
-    // Find the matching TestFailure to get the failure number and name
+    // Find the matching TestFailure to get the failure number, name, and values
     var failure_num: u8 = 1;
     var test_name: []const u8 = "";
+    var expected_value: []const u8 = "";
+    var actual_value: []const u8 = "";
     for (report.testFailures()) |tf| {
         if (tf.line_index == line_idx) {
             failure_num = tf.failure_number;
             test_name = tf.getName(text_buf);
+            expected_value = tf.getExpected(text_buf);
+            actual_value = tf.getActual(text_buf);
             break;
         }
     }
@@ -245,6 +282,63 @@ fn renderTestFailureLine(
         });
         col += 1;
     }
+    rows_used += 1;
+
+    // Render expected/actual values if present (using Zig's terminology)
+    if (expected_value.len > 0 and actual_value.len > 0 and rows_used + 2 < max_rows) {
+        // Blank line before values
+        rows_used += 1;
+
+        // Render "expected: <value>" - aligned with indent
+        const current_row = row + rows_used;
+        col = 0;
+        const expected_label = "expected: ";
+        for (expected_label) |c| {
+            if (col >= win.width) break;
+            win.writeCell(col, current_row, .{
+                .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+                .style = .{ .fg = colors.muted, .bg = bg_color },
+            });
+            col += 1;
+        }
+        // Render expected value in green
+        for (expected_value) |c| {
+            if (col >= win.width) break;
+            win.writeCell(col, current_row, .{
+                .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+                .style = .{ .fg = colors.expected_fg, .bg = bg_color },
+            });
+            col += 1;
+        }
+        rows_used += 1;
+
+        // Render "   found: <actual>" - aligned with "expected:"
+        if (rows_used < max_rows) {
+            const next_row = row + rows_used;
+            col = 0;
+            const found_label = "   found: ";
+            for (found_label) |c| {
+                if (col >= win.width) break;
+                win.writeCell(col, next_row, .{
+                    .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+                    .style = .{ .fg = colors.muted, .bg = bg_color },
+                });
+                col += 1;
+            }
+            // Render actual value in red
+            for (actual_value) |c| {
+                if (col >= win.width) break;
+                win.writeCell(col, next_row, .{
+                    .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+                    .style = .{ .fg = colors.actual_fg, .bg = bg_color },
+                });
+                col += 1;
+            }
+            rows_used += 1;
+        }
+    }
+
+    return rows_used;
 }
 
 /// Render the complete UI.
@@ -254,6 +348,8 @@ pub fn render(
     view: *const types.ViewState,
     watching: bool,
     job_name: []const u8,
+    project_name: []const u8,
+    project_root: []const u8,
 ) void {
     const win = vx.window();
     win.clear();
@@ -278,8 +374,8 @@ pub fn render(
         .height = 1,
     });
 
-    renderHeader(header_win, report, view, watching, job_name);
-    renderContent(content_win, report, view);
+    renderHeader(header_win, report, view, watching, job_name, project_name);
+    renderContent(content_win, report, view, project_root);
     renderFooter(footer_win, report, view);
 }
 
@@ -291,6 +387,7 @@ fn renderHeader(
     view: *const types.ViewState,
     watching: bool,
     job_name: []const u8,
+    project_name: []const u8,
 ) void {
     const Cell = vaxis.Cell;
 
@@ -358,8 +455,10 @@ fn renderHeader(
         }
     }.f;
 
-    // 1. Project name: " vigil "
-    for (" vigil ") |c| writeChar(win, c, &col, project_bg, white);
+    // 1. Project name: " <name> "
+    writeChar(win, ' ', &col, project_bg, white);
+    for (project_name) |c| writeChar(win, c, &col, project_bg, white);
+    writeChar(win, ' ', &col, project_bg, white);
     col += 1; // Gap
 
     // 2. Job name: " build " / " test " / " run "
@@ -447,6 +546,7 @@ fn renderContent(
     win: vaxis.Window,
     report: *const types.Report,
     view: *const types.ViewState,
+    project_root: []const u8,
 ) void {
     const content_height = win.height;
     if (content_height == 0) return;
@@ -486,23 +586,30 @@ fn renderContent(
         else
             .default;
 
-        // Special rendering for test failure headers (Bacon-style badge)
+        // Special rendering for test failure headers (Bacon-style badge + expected/actual)
         if (line.kind == .test_fail_header) {
             // Add blank line before 2nd+ test failures
             if (seen_test_fail and row < content_height) {
                 row += 1;
             }
             seen_test_fail = true;
-            renderTestFailureLine(win, line, report, row, bg_color, @intCast(line_idx));
-            row += 1;
-            // Add blank line after the header
+            const remaining_rows = content_height -| row;
+            const rows_used = renderTestFailureLine(win, line, report, row, bg_color, @intCast(line_idx), remaining_rows);
+            row += rows_used;
+            // Add blank line after the failure block
             if (row < content_height) {
                 row += 1;
             }
             continue; // Skip the normal row increment
         } else {
-            const text = line.getText(text_buf);
+            var text = line.getText(text_buf);
             const fg_color = getLineColor(line.kind, view.expanded);
+
+            // In terse mode, clean up stack trace location lines (strip path prefix and memory address)
+            if (!view.expanded and line.kind == .note_location) {
+                text = cleanStackTraceLine(text, project_root);
+            }
+
             printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row);
         }
 
