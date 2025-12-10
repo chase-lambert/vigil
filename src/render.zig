@@ -40,6 +40,132 @@ fn printFmt(win: vaxis.Window, comptime fmt: []const u8, args: anytype, style: v
     return printText(win, text, style, opts);
 }
 
+/// Map a byte to a static string literal for writeCell grapheme field.
+/// libvaxis requires grapheme to point to static/comptime memory - runtime slices corrupt in ReleaseSafe.
+/// Covers all printable ASCII (0x20-0x7E). Returns "?" for unmapped characters.
+fn charToStaticGrapheme(c: u8) []const u8 {
+    return switch (c) {
+        // Space and punctuation (0x20-0x2F)
+        ' ' => " ",
+        '!' => "!",
+        '"' => "\"",
+        '#' => "#",
+        '$' => "$",
+        '%' => "%",
+        '&' => "&",
+        '\'' => "'",
+        '(' => "(",
+        ')' => ")",
+        '*' => "*",
+        '+' => "+",
+        ',' => ",",
+        '-' => "-",
+        '.' => ".",
+        '/' => "/",
+        // Digits (0x30-0x39)
+        '0' => "0",
+        '1' => "1",
+        '2' => "2",
+        '3' => "3",
+        '4' => "4",
+        '5' => "5",
+        '6' => "6",
+        '7' => "7",
+        '8' => "8",
+        '9' => "9",
+        // Punctuation (0x3A-0x40)
+        ':' => ":",
+        ';' => ";",
+        '<' => "<",
+        '=' => "=",
+        '>' => ">",
+        '?' => "?",
+        '@' => "@",
+        // Uppercase letters (0x41-0x5A)
+        'A' => "A",
+        'B' => "B",
+        'C' => "C",
+        'D' => "D",
+        'E' => "E",
+        'F' => "F",
+        'G' => "G",
+        'H' => "H",
+        'I' => "I",
+        'J' => "J",
+        'K' => "K",
+        'L' => "L",
+        'M' => "M",
+        'N' => "N",
+        'O' => "O",
+        'P' => "P",
+        'Q' => "Q",
+        'R' => "R",
+        'S' => "S",
+        'T' => "T",
+        'U' => "U",
+        'V' => "V",
+        'W' => "W",
+        'X' => "X",
+        'Y' => "Y",
+        'Z' => "Z",
+        // Punctuation (0x5B-0x60)
+        '[' => "[",
+        '\\' => "\\",
+        ']' => "]",
+        '^' => "^",
+        '_' => "_",
+        '`' => "`",
+        // Lowercase letters (0x61-0x7A)
+        'a' => "a",
+        'b' => "b",
+        'c' => "c",
+        'd' => "d",
+        'e' => "e",
+        'f' => "f",
+        'g' => "g",
+        'h' => "h",
+        'i' => "i",
+        'j' => "j",
+        'k' => "k",
+        'l' => "l",
+        'm' => "m",
+        'n' => "n",
+        'o' => "o",
+        'p' => "p",
+        'q' => "q",
+        'r' => "r",
+        's' => "s",
+        't' => "t",
+        'u' => "u",
+        'v' => "v",
+        'w' => "w",
+        'x' => "x",
+        'y' => "y",
+        'z' => "z",
+        // Punctuation (0x7B-0x7E)
+        '{' => "{",
+        '|' => "|",
+        '}' => "}",
+        '~' => "~",
+        // Non-printable or extended ASCII
+        else => "?",
+    };
+}
+
+/// Render a content line using writeCell character-by-character.
+/// This avoids the grapheme lifetime issue with win.print() on runtime strings.
+fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, row: u16) void {
+    var col: u16 = 0;
+    for (text) |byte| {
+        if (col >= win.width) break;
+        win.writeCell(col, row, .{
+            .char = .{ .grapheme = charToStaticGrapheme(byte), .width = 1 },
+            .style = style,
+        });
+        col += 1;
+    }
+}
+
 /// Render the complete UI.
 pub fn render(
     vx: *vaxis.Vaxis,
@@ -271,7 +397,7 @@ fn renderContent(
         else
             .default;
 
-        _ = printText(win, text, .{ .fg = fg_color, .bg = bg_color }, .{ .row_offset = row });
+        printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row);
 
         row += 1;
     }

@@ -30,6 +30,9 @@ pub const Parser = struct {
     current_test_failure: ?u8,
     /// Running count of test failures for badge numbering
     test_failure_count: u8,
+    /// Lines remaining to capture after note_location (source + pointer)
+    /// Zig's note context lines have NO indentation unlike error context
+    note_context_remaining: u8,
 
     pub fn init() Parser {
         return .{
@@ -37,6 +40,7 @@ pub const Parser = struct {
             .in_reference_block = false,
             .current_test_failure = null,
             .test_failure_count = 0,
+            .note_context_remaining = 0,
         };
     }
 
@@ -45,6 +49,7 @@ pub const Parser = struct {
         self.in_reference_block = false;
         self.current_test_failure = null;
         self.test_failure_count = 0;
+        self.note_context_remaining = 0;
     }
 
     /// Parse a single line of output and add it to the report.
@@ -128,11 +133,29 @@ pub const Parser = struct {
         // Empty line
         if (line.len == 0) {
             self.in_reference_block = false;
+            self.note_context_remaining = 0;
             return .blank;
         }
 
         const trimmed = std.mem.trimLeft(u8, line, " ");
         if (trimmed.len == 0) return .blank;
+
+        // Note context lines: Zig's note context has NO indentation (unlike error context)
+        // We expect 2 lines after a note: source line, then pointer line
+        if (self.note_context_remaining > 0) {
+            self.note_context_remaining -= 1;
+            // Check if it's actually context (not another location line or keyword)
+            if (std.mem.indexOf(u8, line, ": note:") == null and
+                std.mem.indexOf(u8, line, ": error:") == null and
+                std.mem.indexOf(u8, line, ": warning:") == null and
+                !std.mem.startsWith(u8, trimmed, "referenced by:"))
+            {
+                if (isPointerLine(trimmed)) return .pointer_line;
+                return .source_line;
+            }
+            // It's another location line, stop expecting context
+            self.note_context_remaining = 0;
+        }
 
         // "referenced by:" starts a block we want to hide
         if (std.mem.startsWith(u8, trimmed, "referenced by:")) {
@@ -164,6 +187,8 @@ pub const Parser = struct {
             return .warning_location;
         }
         if (std.mem.indexOf(u8, line, ": note:")) |_| {
+            // Start expecting 2 context lines (source + pointer)
+            self.note_context_remaining = 2;
             return .note_location;
         }
 
