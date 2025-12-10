@@ -644,3 +644,88 @@ test "extractExpectedActual from header" {
     try std.testing.expectEqual(@as(u16, 2), info.expected_len); // "42"
     try std.testing.expectEqual(@as(u16, 1), info.actual_len); // "4"
 }
+
+// =============================================================================
+// Edge Case Tests (TigerStyle: test the negative space)
+// =============================================================================
+
+test "parseLocation - invalid formats return null" {
+    // No colons at all
+    try std.testing.expect(parseLocation("no colons here") == null);
+    // Missing error/warning/note marker
+    try std.testing.expect(parseLocation("src/main.zig:42:13") == null);
+    // Only one colon before marker
+    try std.testing.expect(parseLocation("file:42: error: msg") == null);
+    // Empty path
+    try std.testing.expect(parseLocation(":1:1: error: msg") == null);
+    // Non-numeric line/col
+    try std.testing.expect(parseLocation("file:abc:def: error: msg") == null);
+}
+
+test "classify - empty and whitespace lines" {
+    var parser = Parser.init();
+
+    // Empty line resets state and returns blank
+    try std.testing.expectEqual(LineKind.blank, parser.classify(""));
+
+    // Space-only line returns blank (trimLeft only handles spaces)
+    try std.testing.expectEqual(LineKind.blank, parser.classify("   "));
+
+    // Tabs are NOT trimmed (Zig compiler output uses spaces, not tabs)
+    // This is correct behavior - tabs would be unusual in compiler output
+    try std.testing.expectEqual(LineKind.other, parser.classify("\t\t"));
+}
+
+test "classify - reference block state transitions" {
+    var parser = Parser.init();
+    var report = Report.init();
+
+    // Start a reference block
+    try parser.parseLine("referenced by: foo", .stderr, &report);
+    try std.testing.expect(parser.in_reference_block);
+
+    // Indented reference line stays in block
+    try parser.parseLine("    src/main.zig:10:5", .stderr, &report);
+    try std.testing.expect(parser.in_reference_block);
+
+    // Empty line ends reference block
+    try parser.parseLine("", .stderr, &report);
+    try std.testing.expect(!parser.in_reference_block);
+}
+
+test "classify - note context line tracking" {
+    var parser = Parser.init();
+    var report = Report.init();
+
+    // A note line sets note_context_remaining to 2
+    try parser.parseLine("src/main.zig:10:5: note: see declaration", .stderr, &report);
+    try std.testing.expectEqual(@as(u8, 2), parser.note_context_remaining);
+
+    // Next line (source) decrements to 1
+    try parser.parseLine("    const x = 5;", .stderr, &report);
+    try std.testing.expectEqual(@as(u8, 1), parser.note_context_remaining);
+
+    // Pointer line decrements to 0
+    try parser.parseLine("    ~~~^~~~", .stderr, &report);
+    try std.testing.expectEqual(@as(u8, 0), parser.note_context_remaining);
+}
+
+test "classify - std library frames are marked internal" {
+    var parser = Parser.init();
+
+    // User code error
+    try std.testing.expectEqual(LineKind.error_location, parser.classify("src/main.zig:10:5: error: msg"));
+
+    // std library error (should be hidden in terse mode)
+    try std.testing.expectEqual(LineKind.test_internal_frame, parser.classify("/home/user/.zvm/0.15.2/lib/std/testing.zig:110:17: error: msg"));
+}
+
+test "looksLikeCode" {
+    // Code-like content
+    try std.testing.expect(looksLikeCode("const x = 5;"));
+    try std.testing.expect(looksLikeCode("foo.bar()"));
+    try std.testing.expect(looksLikeCode("@import(\"std\")"));
+
+    // Non-code content
+    try std.testing.expect(!looksLikeCode("")); // Empty is not code
+}

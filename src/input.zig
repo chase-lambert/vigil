@@ -161,3 +161,143 @@ pub fn handleKey(
         .searching => handleSearchMode(key, search_buf, search_len),
     };
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+/// Helper to create a key for testing
+fn testKey(codepoint: u21, mods: vaxis.Key.Modifiers) vaxis.Key {
+    return .{ .codepoint = codepoint, .mods = mods };
+}
+
+test "handleNormalMode - quit keys" {
+    // 'q' quits
+    try std.testing.expectEqual(Action.quit, handleNormalMode(testKey('q', .{})));
+    // Ctrl+C quits
+    try std.testing.expectEqual(Action.quit, handleNormalMode(testKey('c', .{ .ctrl = true })));
+    // Just 'c' without ctrl does nothing
+    try std.testing.expectEqual(Action.none, handleNormalMode(testKey('c', .{})));
+}
+
+test "handleNormalMode - navigation keys" {
+    // Scroll
+    try std.testing.expectEqual(Action.scroll_down, handleNormalMode(testKey('j', .{})));
+    try std.testing.expectEqual(Action.scroll_up, handleNormalMode(testKey('k', .{})));
+    try std.testing.expectEqual(Action.scroll_down, handleNormalMode(testKey(vaxis.Key.down, .{})));
+    try std.testing.expectEqual(Action.scroll_up, handleNormalMode(testKey(vaxis.Key.up, .{})));
+
+    // Page scroll
+    try std.testing.expectEqual(Action.scroll_page_down, handleNormalMode(testKey('d', .{ .ctrl = true })));
+    try std.testing.expectEqual(Action.scroll_page_up, handleNormalMode(testKey('u', .{ .ctrl = true })));
+
+    // Jump to top/bottom
+    try std.testing.expectEqual(Action.scroll_top, handleNormalMode(testKey('g', .{})));
+    try std.testing.expectEqual(Action.scroll_bottom, handleNormalMode(testKey('G', .{})));
+
+    // Error navigation
+    try std.testing.expectEqual(Action.next_error, handleNormalMode(testKey('n', .{})));
+    try std.testing.expectEqual(Action.prev_error, handleNormalMode(testKey('N', .{})));
+}
+
+test "handleNormalMode - actions" {
+    // Rebuild
+    try std.testing.expectEqual(Action.rebuild, handleNormalMode(testKey('r', .{})));
+    // Toggle view
+    try std.testing.expectEqual(Action.toggle_expanded, handleNormalMode(testKey(' ', .{})));
+    try std.testing.expectEqual(Action.toggle_expanded, handleNormalMode(testKey(vaxis.Key.tab, .{})));
+    // Toggle watch
+    try std.testing.expectEqual(Action.toggle_watch, handleNormalMode(testKey('w', .{})));
+    // Help
+    try std.testing.expectEqual(Action.show_help, handleNormalMode(testKey('?', .{})));
+    try std.testing.expectEqual(Action.show_help, handleNormalMode(testKey('h', .{})));
+    // Search
+    try std.testing.expectEqual(Action.start_search, handleNormalMode(testKey('/', .{})));
+    // Editor
+    try std.testing.expectEqual(Action.open_in_editor, handleNormalMode(testKey(vaxis.Key.enter, .{})));
+}
+
+test "handleNormalMode - job selection" {
+    const build_action = handleNormalMode(testKey('b', .{}));
+    const test_action = handleNormalMode(testKey('t', .{}));
+    const run_action = handleNormalMode(testKey('x', .{}));
+
+    try std.testing.expectEqual(Action{ .select_job = 0 }, build_action);
+    try std.testing.expectEqual(Action{ .select_job = 1 }, test_action);
+    try std.testing.expectEqual(Action{ .select_job = 2 }, run_action);
+}
+
+test "handleNormalMode - unmapped keys return none" {
+    // Random unmapped keys should return .none
+    try std.testing.expectEqual(Action.none, handleNormalMode(testKey('z', .{})));
+    try std.testing.expectEqual(Action.none, handleNormalMode(testKey('1', .{})));
+    try std.testing.expectEqual(Action.none, handleNormalMode(testKey('!', .{})));
+}
+
+test "handleHelpMode - exit keys" {
+    try std.testing.expectEqual(Action.hide_help, handleHelpMode(testKey('q', .{})));
+    try std.testing.expectEqual(Action.hide_help, handleHelpMode(testKey(vaxis.Key.escape, .{})));
+    try std.testing.expectEqual(Action.hide_help, handleHelpMode(testKey('?', .{})));
+    // Other keys do nothing in help mode
+    try std.testing.expectEqual(Action.none, handleHelpMode(testKey('j', .{})));
+    try std.testing.expectEqual(Action.none, handleHelpMode(testKey('r', .{})));
+}
+
+test "handleSearchMode - character input" {
+    var buf: [types.MAX_SEARCH_LEN]u8 = undefined;
+    var len: u8 = 0;
+
+    // Type 'a'
+    _ = handleSearchMode(testKey('a', .{}), &buf, &len);
+    try std.testing.expectEqual(@as(u8, 1), len);
+    try std.testing.expectEqual(@as(u8, 'a'), buf[0]);
+
+    // Type 'b'
+    _ = handleSearchMode(testKey('b', .{}), &buf, &len);
+    try std.testing.expectEqual(@as(u8, 2), len);
+    try std.testing.expectEqualStrings("ab", buf[0..len]);
+}
+
+test "handleSearchMode - backspace" {
+    var buf: [types.MAX_SEARCH_LEN]u8 = undefined;
+    var len: u8 = 2;
+    buf[0] = 'a';
+    buf[1] = 'b';
+
+    // Backspace removes last char
+    _ = handleSearchMode(testKey(vaxis.Key.backspace, .{}), &buf, &len);
+    try std.testing.expectEqual(@as(u8, 1), len);
+
+    // Backspace again
+    _ = handleSearchMode(testKey(vaxis.Key.backspace, .{}), &buf, &len);
+    try std.testing.expectEqual(@as(u8, 0), len);
+
+    // Backspace at empty does nothing (no underflow)
+    _ = handleSearchMode(testKey(vaxis.Key.backspace, .{}), &buf, &len);
+    try std.testing.expectEqual(@as(u8, 0), len);
+}
+
+test "handleSearchMode - escape and enter" {
+    var buf: [types.MAX_SEARCH_LEN]u8 = undefined;
+    var len: u8 = 0;
+
+    try std.testing.expectEqual(Action.cancel, handleSearchMode(testKey(vaxis.Key.escape, .{}), &buf, &len));
+    try std.testing.expectEqual(Action.confirm, handleSearchMode(testKey(vaxis.Key.enter, .{}), &buf, &len));
+}
+
+test "handleKey - mode dispatch" {
+    var buf: [types.MAX_SEARCH_LEN]u8 = undefined;
+    var len: u8 = 0;
+
+    // In normal mode, 'q' quits
+    try std.testing.expectEqual(Action.quit, handleKey(testKey('q', .{}), .normal, &buf, &len));
+
+    // In help mode, 'q' hides help
+    try std.testing.expectEqual(Action.hide_help, handleKey(testKey('q', .{}), .help, &buf, &len));
+
+    // In search mode, 'q' types 'q'
+    const action = handleKey(testKey('q', .{}), .searching, &buf, &len);
+    try std.testing.expectEqual(Action.none, action);
+    try std.testing.expectEqual(@as(u8, 1), len);
+    try std.testing.expectEqual(@as(u8, 'q'), buf[0]);
+}

@@ -170,37 +170,8 @@ pub const App = struct {
         }
     }
 
-    /// Parse project name from build.zig.zon content.
-    /// Handles both ".name = .identifier" (0.15) and ".name = \"string\"" (older)
-    fn parseZonName(self: *App, content: []const u8) ?[]const u8 {
-        _ = self;
-        // Look for ".name = "
-        const name_marker = ".name = ";
-        const pos = std.mem.indexOf(u8, content, name_marker) orelse return null;
-        const after_marker = content[pos + name_marker.len ..];
-
-        if (after_marker.len == 0) return null;
-
-        // Check format: .identifier (enum literal) or "string"
-        if (after_marker[0] == '.') {
-            // Enum literal: .name = .identifier
-            const start = 1; // Skip the dot
-            var end: usize = start;
-            while (end < after_marker.len) : (end += 1) {
-                const c = after_marker[end];
-                if (!std.ascii.isAlphanumeric(c) and c != '_') break;
-            }
-            if (end > start) {
-                return after_marker[start..end];
-            }
-        } else if (after_marker[0] == '"') {
-            // String literal: .name = "string"
-            const start = 1; // Skip opening quote
-            const end_quote = std.mem.indexOf(u8, after_marker[start..], "\"") orelse return null;
-            return after_marker[start .. start + end_quote];
-        }
-
-        return null;
+    fn parseZonName(_: *App, content: []const u8) ?[]const u8 {
+        return parseZonNameFromContent(content);
     }
 
     /// Extract project name from directory name as fallback.
@@ -519,3 +490,77 @@ pub const App = struct {
         }
     }
 };
+
+/// Parse project name from build.zig.zon content.
+/// Handles ".name = .identifier" (Zig 0.15) and ".name = \"string\"" (older)
+pub fn parseZonNameFromContent(content: []const u8) ?[]const u8 {
+    const name_marker = ".name = ";
+    const pos = std.mem.indexOf(u8, content, name_marker) orelse return null;
+    const after_marker = content[pos + name_marker.len ..];
+
+    if (after_marker.len == 0) return null;
+
+    if (after_marker[0] == '.') {
+        // Enum literal: .name = .identifier
+        const start = 1;
+        var end: usize = start;
+        while (end < after_marker.len) : (end += 1) {
+            const c = after_marker[end];
+            if (!std.ascii.isAlphanumeric(c) and c != '_') break;
+        }
+        if (end > start) {
+            return after_marker[start..end];
+        }
+    } else if (after_marker[0] == '"') {
+        // String literal: .name = "string"
+        const start = 1;
+        const end_quote = std.mem.indexOf(u8, after_marker[start..], "\"") orelse return null;
+        return after_marker[start .. start + end_quote];
+    }
+
+    return null;
+}
+
+test "parseZonNameFromContent - enum literal format (Zig 0.15)" {
+    const content =
+        \\.{
+        \\    .name = .vigil,
+        \\    .version = "0.1.0",
+        \\}
+    ;
+    const name = parseZonNameFromContent(content);
+    try std.testing.expect(name != null);
+    try std.testing.expectEqualStrings("vigil", name.?);
+}
+
+test "parseZonNameFromContent - string literal format (older Zig)" {
+    const content =
+        \\.{
+        \\    .name = "my_project",
+        \\    .version = "0.1.0",
+        \\}
+    ;
+    const name = parseZonNameFromContent(content);
+    try std.testing.expect(name != null);
+    try std.testing.expectEqualStrings("my_project", name.?);
+}
+
+test "parseZonNameFromContent - missing name field" {
+    const content =
+        \\.{
+        \\    .version = "0.1.0",
+        \\}
+    ;
+    try std.testing.expect(parseZonNameFromContent(content) == null);
+}
+
+test "parseZonNameFromContent - empty content" {
+    try std.testing.expect(parseZonNameFromContent("") == null);
+}
+
+test "parseZonNameFromContent - name with underscores" {
+    const content = ".name = .my_cool_project,";
+    const name = parseZonNameFromContent(content);
+    try std.testing.expect(name != null);
+    try std.testing.expectEqualStrings("my_cool_project", name.?);
+}
