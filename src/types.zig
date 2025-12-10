@@ -402,53 +402,6 @@ pub const Report = struct {
 };
 
 // =============================================================================
-// Job Configuration
-// =============================================================================
-
-/// A configured build job (e.g., "check", "test", "run").
-pub const Job = struct {
-    /// Job name for display
-    name: [32]u8,
-    name_len: u8,
-    /// Command arguments
-    args: [MAX_CMD_ARGS][MAX_PATH_LEN]u8,
-    args_lens: [MAX_CMD_ARGS]u8,
-    args_count: u8,
-    /// Keybinding to trigger this job (0 = none)
-    key: u8,
-
-    pub fn init() Job {
-        return .{
-            .name = undefined,
-            .name_len = 0,
-            .args = undefined,
-            .args_lens = undefined,
-            .args_count = 0,
-            .key = 0,
-        };
-    }
-
-    pub fn getName(self: *const Job) []const u8 {
-        return self.name[0..self.name_len];
-    }
-
-    pub fn setName(self: *Job, name: []const u8) void {
-        const copy_len = @min(name.len, self.name.len);
-        @memcpy(self.name[0..copy_len], name[0..copy_len]);
-        self.name_len = @intCast(copy_len);
-    }
-
-    pub fn addArg(self: *Job, arg: []const u8) !void {
-        if (self.args_count >= MAX_CMD_ARGS) return error.TooManyArgs;
-        const idx = self.args_count;
-        const copy_len = @min(arg.len, MAX_PATH_LEN);
-        @memcpy(self.args[idx][0..copy_len], arg[0..copy_len]);
-        self.args_lens[idx] = @intCast(copy_len);
-        self.args_count += 1;
-    }
-};
-
-// =============================================================================
 // View State
 // =============================================================================
 

@@ -405,50 +405,12 @@ fn renderHeader(
 
     var col: u16 = 0;
 
-    // Helper: write a single character cell
+    // Helper: write a single character cell (uses shared charToStaticGrapheme)
     const writeChar = struct {
         fn f(w: vaxis.Window, c: u8, column: *u16, bg: vaxis.Color, fg: vaxis.Color) void {
             if (column.* >= w.width) return;
-            // Create a static single-byte string for the grapheme
-            const grapheme: []const u8 = switch (c) {
-                ' ' => " ",
-                '!' => "!",
-                '0' => "0",
-                '1' => "1",
-                '2' => "2",
-                '3' => "3",
-                '4' => "4",
-                '5' => "5",
-                '6' => "6",
-                '7' => "7",
-                '8' => "8",
-                '9' => "9",
-                'a' => "a",
-                'b' => "b",
-                'c' => "c",
-                'd' => "d",
-                'e' => "e",
-                'f' => "f",
-                'g' => "g",
-                'h' => "h",
-                'i' => "i",
-                'l' => "l",
-                'n' => "n",
-                'o' => "o",
-                'p' => "p",
-                'r' => "r",
-                's' => "s",
-                't' => "t",
-                'u' => "u",
-                'v' => "v",
-                'w' => "w",
-                'x' => "x",
-                'K' => "K",
-                'O' => "O",
-                else => "?",
-            };
             w.writeCell(column.*, 0, Cell{
-                .char = .{ .grapheme = grapheme, .width = 1 },
+                .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
                 .style = .{ .bg = bg, .fg = fg, .bold = true },
             });
             column.* += 1;

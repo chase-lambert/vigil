@@ -1,5 +1,9 @@
 # Vigil Architecture
 
+## What is Vigil?
+
+A **build watcher for Zig** — like Bacon for Rust. It runs `zig build`, parses output, displays errors/warnings in a clean TUI, and auto-rebuilds on file changes.
+
 ## Design Philosophy
 
 **Simplicity, Elegance, Craftsmanship**
@@ -50,21 +54,177 @@ Why: Report is ~740KB (too large for stack). Lives in `.bss` segment (compile-ti
 - Other modules receive `*const Report` as a parameter
 - Pure functions don't reach for global state
 
-## Module Overview
+---
+
+## Architecture Overview
 
 ```
-main.zig          Entry point, CLI args
-    │
-    ▼
-app.zig           Coordination hub (imperative shell)
-    │
-    ├──► types.zig      Data structures, limits, assertions
-    ├──► parse.zig      Line classification (pure functions)
-    ├──► process.zig    Command execution
-    ├──► watch.zig      File watching (polling)
-    ├──► render.zig     TUI drawing (takes Report as param)
-    └──► input.zig      Key → Action (pure)
+User runs: vigil
+           │
+           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  main.zig                                                   │
+│  - Parse CLI args (test/run/build)                          │
+│  - Create App, configure it                                 │
+│  - Run initial build, start event loop                      │
+└─────────────────────────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  app.zig - The "hub" (imperative shell)                     │
+│  - Owns App struct (vaxis, tty, view state, watcher)        │
+│  - Main event loop (keyboard, file changes, render)         │
+│  - Coordinates all other modules                            │
+└─────────────────────────────────────────────────────────────┘
+           │
+    ┌──────┼──────┬──────────┬────────────┐
+    ▼      ▼      ▼          ▼            ▼
+┌───────┐┌───────┐┌────────┐┌──────────┐┌────────┐
+│types  ││parse  ││process ││watch     ││render  │
+│.zig   ││.zig   ││.zig    ││.zig      ││.zig    │
+│       ││       ││        ││          ││        │
+│Data   ││Line   ││Run zig ││Poll file ││Draw    │
+│structs││class- ││build,  ││mtimes,   ││TUI w/  │
+│       ││ifier  ││capture ││detect    ││libvaxis│
+│       ││       ││output  ││changes   ││        │
+└───────┘└───────┘└────────┘└──────────┘└────────┘
+                                         │
+                                   ┌─────┴─────┐
+                                   │ input.zig │
+                                   │ Key→Action│
+                                   │ (pure)    │
+                                   └───────────┘
 ```
+
+---
+
+## Module Details
+
+### `types.zig` — Core Data Structures
+
+The foundation. Defines all limits, enums, and structs.
+
+**Constants (TigerStyle: "put a limit on everything"):**
+```zig
+pub const MAX_LINES: usize = 8192;           // Max lines in a report
+pub const MAX_LINE_LEN: usize = 512;         // Max chars per line
+pub const MAX_TEXT_SIZE: usize = 512 * 1024; // 512KB shared text buffer
+pub const MAX_ITEMS: usize = 1024;           // Max navigable errors
+pub const MAX_TEST_FAILURES: usize = 64;     // Max test failures tracked
+```
+
+**`LineKind` — Classification enum:**
+```zig
+pub const LineKind = enum(u8) {
+    // Shown in terse mode:
+    error_location,      // "src/main.zig:42:13: error: ..."
+    warning_location,
+    note_location,
+    source_line,         // "    const x = 5;"
+    pointer_line,        // "    ~~~^~~~"
+    test_fail,
+    test_fail_header,    // "error: 'test_name' failed:"
+    test_expected_value, // "expected X, found Y"
+    test_summary,
+    blank,
+
+    // Hidden in terse mode:
+    test_pass,           // Clean Bacon-style display
+    test_internal_frame, // std.testing.zig frames
+    build_tree,          // "└─ compile exe..."
+    referenced_by,       // "referenced by: ..."
+    command_dump,        // The massive zig command
+    build_summary,       // "Build Summary: ..."
+    final_error,
+    other,
+};
+```
+
+**Other key types:**
+- `Line` — Parsed line with offset into shared text buffer
+- `Report` — Collection of lines + stats + shared 512KB text buffer
+- `ViewState` — UI state (scroll, mode, selected item)
+- `WatchConfig` — Paths to watch, debounce settings
+- `Stats` — Error/warning/test counts
+
+**Comptime assertions validate invariants:**
+```zig
+comptime {
+    assert(@sizeOf(Line) <= 32);           // Fits in cache line
+    assert(@sizeOf(Report) < 1024 * 1024); // Under 1MB
+}
+```
+
+### `parse.zig` — Output Classification
+
+Hand-written matchers classify each line of `zig build` output. No regex.
+
+- `classify()` — Determines LineKind using `std.mem.indexOf`, `std.mem.startsWith`
+- `parseLocation()` — Extracts `path:line:col` from error messages
+- `extractTestName()` — Pulls test name from failure headers
+- Tracks parser state for context-sensitive classification (e.g., note context lines)
+
+### `process.zig` — Command Execution
+
+Thin wrapper around `std.process.Child.run`. Captures stderr (preferred) or stdout, returns exit code.
+
+### `watch.zig` — File Watching
+
+Polling-based watcher with debouncing. Uses **iterative stack-based traversal** (not recursion) to find newest mtime in directories up to 8 levels deep.
+
+### `render.zig` — TUI Drawing
+
+Uses libvaxis for terminal rendering:
+- Header: project name, job, status badge, mode indicator, watch status
+- Content: classified lines with color coding, scroll handling
+- Footer: help hints, line counts
+
+### `input.zig` — Key Handling
+
+Pure functions that map `vaxis.Key` → `Action`. Different handlers for normal, help, and search modes.
+
+---
+
+## Main Event Loop
+
+```zig
+pub fn run(self: *App) !void {
+    // 1. Initialize libvaxis loop (handles terminal resize signals)
+    var loop: vaxis.Loop(Event) = .{ .tty = &self.tty, .vaxis = &self.vx };
+    try loop.init();
+    try loop.start();
+
+    // 2. Enter alternate screen (like vim does)
+    try self.vx.enterAltScreen(writer);
+
+    // 3. Query terminal capabilities
+    try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
+
+    // 4. Main loop
+    while (self.running) {
+        // Process keyboard events
+        while (loop.tryEvent()) |event| {
+            self.handleEvent(event);
+        }
+
+        // Check for file changes
+        if (self.watcher.checkForChanges()) {
+            self.runBuild();
+        }
+
+        // Render if needed
+        if (self.needs_redraw) {
+            self.renderView();
+            self.vx.render(writer);
+        }
+
+        // Sleep ~16ms (60fps)
+        std.Thread.sleep(16 * std.time.ns_per_ms);
+    }
+}
+```
+
+---
 
 ## Key Patterns
 
@@ -88,12 +248,23 @@ pub fn appendLine(self: *Report, line: Line) !void {
 
 ### Shared Text Buffer
 
+The core memory optimization. Instead of inline text storage:
+
 ```zig
-// Line doesn't store text inline—just a reference
+// OLD: 536 bytes per Line, 4.4MB total for 8192 lines
 const Line = struct {
-    text_offset: u32,  // Offset into Report.text_buf
+    content: [512]u8,  // Text stored inline
+    len: u16,
+    kind: LineKind,
+    // ...
+};
+
+// NEW: 28 bytes per Line, 738KB total
+const Line = struct {
+    text_offset: u32,  // Index into shared buffer
     text_len: u16,
     kind: LineKind,
+    // ...
 
     pub fn getText(self: *const Line, text_buf: []const u8) []const u8 {
         return text_buf[self.text_offset..][0..self.text_len];
@@ -102,12 +273,17 @@ const Line = struct {
 
 // Report owns the shared buffer
 const Report = struct {
-    text_buf: [512 * 1024]u8,  // All text here
+    text_buf: [512 * 1024]u8,  // All text here (contiguous)
     text_len: u32,
     lines_buf: [8192]Line,     // Just metadata
-    lines_len: u16,            // Explicit type, not usize
+    lines_len: u16,
 };
 ```
+
+**Benefits:**
+- 6x memory reduction (4.4MB → 738KB)
+- Better cache locality (text is contiguous)
+- No heap allocation for text storage
 
 ### Global Static for Large Structs
 
@@ -139,6 +315,38 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
 
 The App's main loop interprets Actions and performs actual mutations.
 
+---
+
+## Data Flow
+
+```
+User types 'r' (rebuild)
+     │
+     ▼
+input.handleKey() → Action.rebuild
+     │
+     ▼
+app.handleKey() matches .rebuild
+     │
+     ▼
+app.runBuild()
+     │
+     ├─→ process.runBuild() spawns "zig build", waits, returns output
+     │
+     ▼
+parse.parseOutput(output, &global_report)
+     │
+     ├─→ For each line: classify, store text, update stats
+     │
+     ▼
+app.needs_redraw = true
+     │
+     ▼
+Next loop iteration: render.render() draws new state
+```
+
+---
+
 ## Design Decisions
 
 ### Why polling for file watching?
@@ -167,6 +375,8 @@ Trade-off between TigerStyle (no heap) and pure functional (no globals). We chos
 - Keep everything else pure
 
 This is "functional core, imperative shell"—decision-making is pure, mutation is centralized.
+
+---
 
 ## Test Failure Display
 
@@ -211,3 +421,24 @@ Project name comes from `build.zig.zon`:
 ```
 
 Parsed at startup in `app.detectProject()`. Falls back to directory name if no build.zig.zon.
+
+---
+
+## Known Limitations
+
+1. **Search mode incomplete** — `/` enters search mode but filtering not yet implemented
+2. **Editor spawning** — Opens `$EDITOR` but should exit alt screen first
+3. **File watcher is polling-only** — Could add inotify/FSEvents for efficiency
+4. **Tests only in types.zig and parse.zig** — Other modules lack unit tests
+
+---
+
+## Summary
+
+Vigil is a ~2500 line Zig project following TigerStyle principles:
+- Fixed limits on everything
+- Static allocation where possible
+- No regex (hand-written parsers)
+- Single external dependency (libvaxis)
+
+The core innovation is the **shared text buffer** pattern that reduced memory from 4.4MB to 738KB by storing line text contiguously and having `Line` structs store offsets instead of inline arrays.
