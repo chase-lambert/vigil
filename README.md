@@ -77,6 +77,18 @@ vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for design philosophy (TigerStyle, data-oriented design, functional core).
 
+```
+src/
+├── main.zig      # Entry point, arg parsing
+├── app.zig       # Application state, main loop
+├── types.zig     # Core data structures
+├── parse.zig     # Output classification
+├── process.zig   # Command execution
+├── watch.zig     # File system watching
+├── render.zig    # TUI rendering
+└── input.zig     # Keyboard handling
+```
+
 ## License
 
 MIT
