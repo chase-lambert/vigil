@@ -279,11 +279,13 @@ fn renderHeader(
 
     // 1. Project name: " vigil "
     for (" vigil ") |c| writeChar(win, c, &col, project_bg, white);
+    col += 1; // Gap
 
     // 2. Job name: " build " / " test " / " run "
     writeChar(win, ' ', &col, job_bg, white);
     for (job_name) |c| writeChar(win, c, &col, job_bg, white);
     writeChar(win, ' ', &col, job_bg, white);
+    col += 1; // Gap
 
     // 3. Status badge
     const status_bg = if (report.stats.tests_failed > 0 or report.stats.errors > 0)
@@ -345,11 +347,13 @@ fn renderHeader(
     } else {
         for (" OK ") |c| writeChar(win, c, &col, status_ok_bg, white);
     }
+    col += 1; // Gap
 
     // 4. Mode indicator (terse/verbose)
     const mode_bg = if (view.expanded) mode_verbose_bg else mode_terse_bg;
     const mode_text: []const u8 = if (view.expanded) " verbose " else " terse ";
     for (mode_text) |c| writeChar(win, c, &col, mode_bg, white);
+    col += 1; // Gap
 
     // 5. Watch status
     const watch_bg = if (watching) watch_on_bg else watch_off_bg;
