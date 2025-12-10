@@ -202,12 +202,12 @@ pub fn render(
     renderFooter(footer_win, report, view);
 }
 
-/// Render the header bar in Bacon style: project | job | status
+/// Render the header bar in Bacon style: project | job | status | mode | watch
 /// Uses writeCell character-by-character like the libvaxis examples do.
 fn renderHeader(
     win: vaxis.Window,
     report: *const types.Report,
-    _: *const types.ViewState,
+    view: *const types.ViewState,
     watching: bool,
     job_name: []const u8,
 ) void {
@@ -219,6 +219,8 @@ fn renderHeader(
     const status_ok_bg = vaxis.Color{ .rgb = .{ 0x66, 0xcc, 0x66 } }; // Green
     const status_fail_bg = vaxis.Color{ .rgb = .{ 0xcc, 0x66, 0x66 } }; // Red
     const status_warn_bg = vaxis.Color{ .rgb = .{ 0xcc, 0xaa, 0x55 } }; // Orange
+    const mode_terse_bg = vaxis.Color{ .rgb = .{ 0x55, 0x55, 0x66 } }; // Muted gray-blue
+    const mode_verbose_bg = vaxis.Color{ .rgb = .{ 0x66, 0x55, 0x66 } }; // Muted purple
     const watch_on_bg = vaxis.Color{ .rgb = .{ 0x55, 0x77, 0x55 } }; // Muted green
     const watch_off_bg = vaxis.Color{ .rgb = .{ 0x77, 0x55, 0x55 } }; // Muted red
     const white = vaxis.Color{ .rgb = .{ 0xff, 0xff, 0xff } };
@@ -344,7 +346,12 @@ fn renderHeader(
         for (" OK ") |c| writeChar(win, c, &col, status_ok_bg, white);
     }
 
-    // 4. Watch status
+    // 4. Mode indicator (terse/verbose)
+    const mode_bg = if (view.expanded) mode_verbose_bg else mode_terse_bg;
+    const mode_text: []const u8 = if (view.expanded) " verbose " else " terse ";
+    for (mode_text) |c| writeChar(win, c, &col, mode_bg, white);
+
+    // 5. Watch status
     const watch_bg = if (watching) watch_on_bg else watch_off_bg;
     const watch_text: []const u8 = if (watching) " watching " else " paused ";
     for (watch_text) |c| writeChar(win, c, &col, watch_bg, white);
