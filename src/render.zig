@@ -166,6 +166,87 @@ fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style
     }
 }
 
+/// Render a test failure line in Bacon style: [N] failed: test_name
+fn renderTestFailureLine(
+    win: vaxis.Window,
+    line: types.Line,
+    report: *const types.Report,
+    row: u16,
+    bg_color: vaxis.Color,
+    line_idx: u16,
+) void {
+    const text_buf = report.textBuf();
+    var col: u16 = 0;
+
+    // Find the matching TestFailure to get the failure number and name
+    var failure_num: u8 = 1;
+    var test_name: []const u8 = "";
+    for (report.testFailures()) |tf| {
+        if (tf.line_index == line_idx) {
+            failure_num = tf.failure_number;
+            test_name = tf.getName(text_buf);
+            break;
+        }
+    }
+
+    // If no TestFailure found, fall back to extracting from line text
+    if (test_name.len == 0) {
+        const line_text = line.getText(text_buf);
+        // Pattern: "error: 'test_name' failed:"
+        if (std.mem.indexOf(u8, line_text, "error: '")) |start| {
+            const name_start = start + 8;
+            if (std.mem.indexOf(u8, line_text[name_start..], "' failed:")) |name_end| {
+                test_name = line_text[name_start..][0..name_end];
+            }
+        }
+    }
+
+    // Render badge: " N " with colored background
+    const badge_bg = colors.fail_badge_bg;
+    const white = vaxis.Color{ .rgb = .{ 0xff, 0xff, 0xff } };
+
+    win.writeCell(col, row, .{
+        .char = .{ .grapheme = " ", .width = 1 },
+        .style = .{ .bg = badge_bg, .fg = white, .bold = true },
+    });
+    col += 1;
+
+    // Write failure number
+    win.writeCell(col, row, .{
+        .char = .{ .grapheme = charToStaticGrapheme('0' + failure_num), .width = 1 },
+        .style = .{ .bg = badge_bg, .fg = white, .bold = true },
+    });
+    col += 1;
+
+    win.writeCell(col, row, .{
+        .char = .{ .grapheme = " ", .width = 1 },
+        .style = .{ .bg = badge_bg, .fg = white, .bold = true },
+    });
+    col += 1;
+    col += 1; // Gap
+
+    // Render "failed: " in red
+    const failed_text = "failed: ";
+    for (failed_text) |c| {
+        if (col >= win.width) break;
+        win.writeCell(col, row, .{
+            .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+            .style = .{ .fg = colors.error_fg, .bg = bg_color, .bold = true },
+        });
+        col += 1;
+    }
+
+    // Render test name
+    for (test_name) |c| {
+        if (col >= win.width) break;
+        win.writeCell(col, row, .{
+            .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+            .style = .{ .fg = colors.error_fg, .bg = bg_color },
+        });
+        col += 1;
+    }
+}
+
 /// Render the complete UI.
 pub fn render(
     vx: *vaxis.Vaxis,
@@ -186,11 +267,11 @@ pub fn render(
         return;
     }
 
-    // Layout: header (1) + content (height-2) + footer (1)
+    // Layout: header (1) + gap (1) + content (height-3) + footer (1)
     const header_win = win.child(.{ .height = 1 });
     const content_win = win.child(.{
-        .y_off = 1,
-        .height = height -| 2,
+        .y_off = 2, // Gap after header
+        .height = height -| 3,
     });
     const footer_win = win.child(.{
         .y_off = @intCast(height -| 1),
@@ -374,8 +455,9 @@ fn renderContent(
     var row: u16 = 0;
     var prev_blank = false;
     var lines_skipped: usize = 0;
+    var seen_test_fail: bool = false;
 
-    for (report.lines()) |line| {
+    for (report.lines(), 0..) |line, line_idx| {
         const should_show = view.expanded or line.kind.shownInTerse();
         if (!should_show) continue;
 
@@ -396,10 +478,6 @@ fn renderContent(
         // Stop if we've filled the screen
         if (row >= content_height) break;
 
-        // Render the line (get text from shared buffer)
-        const text = line.getText(text_buf);
-        const fg_color = getLineColor(line.kind, view.expanded);
-
         // Highlight selected item
         const is_selected = line.item_index == view.selected_item and
             line.kind.isItemStart();
@@ -408,9 +486,32 @@ fn renderContent(
         else
             .default;
 
-        printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row);
+        // Special rendering for test failure headers (Bacon-style badge)
+        if (line.kind == .test_fail_header) {
+            // Add blank line before 2nd+ test failures
+            if (seen_test_fail and row < content_height) {
+                row += 1;
+            }
+            seen_test_fail = true;
+            renderTestFailureLine(win, line, report, row, bg_color, @intCast(line_idx));
+            row += 1;
+            // Add blank line after the header
+            if (row < content_height) {
+                row += 1;
+            }
+            continue; // Skip the normal row increment
+        } else {
+            const text = line.getText(text_buf);
+            const fg_color = getLineColor(line.kind, view.expanded);
+            printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row);
+        }
 
         row += 1;
+
+        // Add blank line after test summary for visual separation
+        if (line.kind == .test_summary and row < content_height) {
+            row += 1;
+        }
     }
 
     // Show empty state if no lines
