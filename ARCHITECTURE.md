@@ -74,26 +74,20 @@ User runs: vigil
 │  app.zig - The "hub" (imperative shell)                     │
 │  - Owns App struct (vaxis, tty, view state, watcher)        │
 │  - Main event loop (keyboard, file changes, render)         │
-│  - Coordinates all other modules                            │
+│  - Coordinates modules + runs zig build                     │
 └─────────────────────────────────────────────────────────────┘
            │
-    ┌──────┼──────┬──────────┬────────────┐
-    ▼      ▼      ▼          ▼            ▼
-┌───────┐┌───────┐┌────────┐┌──────────┐┌────────┐
-│types  ││parse  ││process ││watch     ││render  │
-│.zig   ││.zig   ││.zig    ││.zig      ││.zig    │
-│       ││       ││        ││          ││        │
-│Data   ││Line   ││Run zig ││Poll file ││Draw    │
-│structs││class- ││build,  ││mtimes,   ││TUI w/  │
-│       ││ifier  ││capture ││detect    ││libvaxis│
-│       ││       ││output  ││changes   ││        │
-└───────┘└───────┘└────────┘└──────────┘└────────┘
-                                         │
-                                   ┌─────┴─────┐
-                                   │ input.zig │
-                                   │ Key→Action│
-                                   │ (pure)    │
-                                   └───────────┘
+    ┌──────┼──────┬────────────┬────────────┐
+    ▼      ▼      ▼            ▼            ▼
+┌───────┐┌───────┐┌──────────┐┌────────────────┐┌─────────┐
+│types  ││parse  ││watch     ││render          ││input    │
+│.zig   ││.zig   ││.zig      ││.zig            ││.zig     │
+│       ││       ││          ││                ││         │
+│Data   ││Line   ││Poll file ││RenderContext   ││Key→     │
+│structs││class- ││mtimes,   ││VisibleLineIter││Action   │
+│       ││ifier  ││detect    ││TUI w/ libvaxis ││(pure)   │
+│       ││       ││changes   ││                ││         │
+└───────┘└───────┘└──────────┘└────────────────┘└─────────┘
 ```
 
 ---
@@ -164,19 +158,23 @@ Hand-written matchers classify each line of `zig build` output. No regex.
 - `extractTestName()` — Pulls test name from failure headers
 - Tracks parser state for context-sensitive classification (e.g., note context lines)
 
-### `process.zig` — Command Execution
-
-Thin wrapper around `std.process.Child.run`. Captures stderr (preferred) or stdout, returns exit code.
-
 ### `watch.zig` — File Watching
 
 Polling-based watcher with debouncing. Uses **iterative stack-based traversal** (not recursion) to find newest mtime in directories up to 8 levels deep.
 
 ### `render.zig` — TUI Drawing
 
-Uses libvaxis for terminal rendering:
+Uses libvaxis for terminal rendering. Key abstractions:
+
+- **RenderContext**: Bundles all render-time state (report, view, watching status, names) to avoid long parameter lists
+- **VisibleLineIterator**: Separates "which lines to show" from "how to draw them". Handles:
+  - Terse/expanded visibility filtering
+  - Consecutive blank line collapsing
+  - Scroll position handling
+
+Components:
 - Header: project name, job, status badge, mode indicator, watch status
-- Content: classified lines with color coding, scroll handling
+- Content: uses VisibleLineIterator for clean iteration over lines
 - Footer: help hints, line counts
 
 ### `input.zig` — Key Handling

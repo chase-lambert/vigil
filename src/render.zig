@@ -7,6 +7,92 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const types = @import("types.zig");
 
+// =============================================================================
+// Render Context (bundles parameters to avoid pass-through smell)
+// =============================================================================
+
+/// All state needed to render a frame.
+/// Bundles parameters that would otherwise be passed through multiple layers.
+pub const RenderContext = struct {
+    report: *const types.Report,
+    view: *const types.ViewState,
+    watching: bool,
+    job_name: []const u8,
+    project_name: []const u8,
+    project_root: []const u8,
+};
+
+// =============================================================================
+// Visible Line Iterator (separates "which lines" from "how to draw")
+// =============================================================================
+
+/// Iterates over lines that should be displayed, handling:
+/// - Terse vs expanded visibility filtering
+/// - Consecutive blank line collapsing
+/// - Scroll position (skipping lines above viewport)
+pub const VisibleLineIterator = struct {
+    report: *const types.Report,
+    expanded: bool,
+    scroll: u16,
+
+    // Internal state
+    line_index: u16,
+    visible_count: u16,
+    prev_blank: bool,
+
+    /// What the iterator yields
+    pub const Item = struct {
+        line: *const types.Line,
+        line_index: u16, // Original index (for test failure lookup)
+    };
+
+    pub fn init(report: *const types.Report, view: *const types.ViewState) VisibleLineIterator {
+        return .{
+            .report = report,
+            .expanded = view.expanded,
+            .scroll = view.scroll,
+            .line_index = 0,
+            .visible_count = 0,
+            .prev_blank = false,
+        };
+    }
+
+    pub fn next(self: *VisibleLineIterator) ?Item {
+        const lines = self.report.lines();
+
+        while (self.line_index < lines.len) {
+            const idx = self.line_index;
+            self.line_index += 1;
+
+            const line = &lines[idx];
+            const should_show = self.expanded or line.kind.shownInTerse();
+            if (!should_show) continue;
+
+            // Collapse consecutive blanks in terse mode
+            if (!self.expanded and line.kind == .blank) {
+                if (self.prev_blank) continue;
+                self.prev_blank = true;
+            } else {
+                self.prev_blank = false;
+            }
+
+            // Handle scrolling (skip lines above viewport)
+            if (self.visible_count < self.scroll) {
+                self.visible_count += 1;
+                continue;
+            }
+            self.visible_count += 1;
+
+            return Item{
+                .line = line,
+                .line_index = @intCast(idx),
+            };
+        }
+
+        return null;
+    }
+};
+
 /// Color palette for consistent theming.
 pub const colors = struct {
     pub const error_fg = vaxis.Color{ .rgb = .{ 0xff, 0x66, 0x66 } };
@@ -38,6 +124,30 @@ fn printFmt(win: vaxis.Window, comptime fmt: []const u8, args: anytype, style: v
     var buf: [256]u8 = undefined;
     const text = std.fmt.bufPrint(&buf, fmt, args) catch return .{ .col = opts.col_offset, .row = opts.row_offset, .overflow = true };
     return printText(win, text, style, opts);
+}
+
+/// Write a number digit-by-digit using writeCell.
+/// Handles the libvaxis static grapheme requirement for dynamic numbers.
+fn writeNumber(win: vaxis.Window, num: u16, col: *u16, bg: vaxis.Color, fg: vaxis.Color) void {
+    // Convert number to digits (reverse order)
+    var digits: [8]u8 = undefined;
+    var digit_count: u8 = 0;
+    var n = num;
+    while (n > 0 or digit_count == 0) : (digit_count += 1) {
+        digits[digit_count] = @intCast((n % 10) + '0');
+        n /= 10;
+    }
+    // Write digits in correct order
+    var i: u8 = digit_count;
+    while (i > 0) {
+        i -= 1;
+        if (col.* >= win.width) return;
+        win.writeCell(col.*, 0, .{
+            .char = .{ .grapheme = charToStaticGrapheme(digits[i]), .width = 1 },
+            .style = .{ .bg = bg, .fg = fg, .bold = true },
+        });
+        col.* += 1;
+    }
 }
 
 /// Map a byte to a static string literal for writeCell grapheme field.
@@ -342,15 +452,7 @@ fn renderTestFailureLine(
 }
 
 /// Render the complete UI.
-pub fn render(
-    vx: *vaxis.Vaxis,
-    report: *const types.Report,
-    view: *const types.ViewState,
-    watching: bool,
-    job_name: []const u8,
-    project_name: []const u8,
-    project_root: []const u8,
-) void {
+pub fn render(vx: *vaxis.Vaxis, ctx: RenderContext) void {
     const win = vx.window();
     win.clear();
 
@@ -374,21 +476,19 @@ pub fn render(
         .height = 1,
     });
 
-    renderHeader(header_win, report, view, watching, job_name, project_name);
-    renderContent(content_win, report, view, project_root);
-    renderFooter(footer_win, report, view);
+    renderHeader(header_win, ctx);
+    renderContent(content_win, ctx);
+    renderFooter(footer_win, ctx.report, ctx.view);
 }
 
 /// Render the header bar in Bacon style: project | job | status | mode | watch
 /// Uses writeCell character-by-character like the libvaxis examples do.
-fn renderHeader(
-    win: vaxis.Window,
-    report: *const types.Report,
-    view: *const types.ViewState,
-    watching: bool,
-    job_name: []const u8,
-    project_name: []const u8,
-) void {
+fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
+    const report = ctx.report;
+    const view = ctx.view;
+    const watching = ctx.watching;
+    const job_name = ctx.job_name;
+    const project_name = ctx.project_name;
     const Cell = vaxis.Cell;
 
     // Colors - softer palette inspired by Bacon
@@ -440,49 +540,15 @@ fn renderHeader(
     if (report.stats.tests_failed > 0) {
         // " N fail "
         writeChar(win, ' ', &col, status_bg, white);
-        // Write the number
-        var num = report.stats.tests_failed;
-        var digits: [8]u8 = undefined;
-        var digit_count: u8 = 0;
-        while (num > 0 or digit_count == 0) : (digit_count += 1) {
-            digits[digit_count] = @intCast((num % 10) + '0');
-            num /= 10;
-        }
-        var i: u8 = digit_count;
-        while (i > 0) {
-            i -= 1;
-            writeChar(win, digits[i], &col, status_bg, white);
-        }
+        writeNumber(win, report.stats.tests_failed, &col, status_bg, white);
         for (" fail ") |c| writeChar(win, c, &col, status_bg, white);
     } else if (report.stats.errors > 0) {
         writeChar(win, ' ', &col, status_bg, white);
-        var num = report.stats.errors;
-        var digits: [8]u8 = undefined;
-        var digit_count: u8 = 0;
-        while (num > 0 or digit_count == 0) : (digit_count += 1) {
-            digits[digit_count] = @intCast((num % 10) + '0');
-            num /= 10;
-        }
-        var i: u8 = digit_count;
-        while (i > 0) {
-            i -= 1;
-            writeChar(win, digits[i], &col, status_bg, white);
-        }
+        writeNumber(win, report.stats.errors, &col, status_bg, white);
         for (" error ") |c| writeChar(win, c, &col, status_bg, white);
     } else if (report.stats.warnings > 0) {
         writeChar(win, ' ', &col, status_bg, white);
-        var num = report.stats.warnings;
-        var digits: [8]u8 = undefined;
-        var digit_count: u8 = 0;
-        while (num > 0 or digit_count == 0) : (digit_count += 1) {
-            digits[digit_count] = @intCast((num % 10) + '0');
-            num /= 10;
-        }
-        var i: u8 = digit_count;
-        while (i > 0) {
-            i -= 1;
-            writeChar(win, digits[i], &col, status_bg, white);
-        }
+        writeNumber(win, report.stats.warnings, &col, status_bg, white);
         for (" warn ") |c| writeChar(win, c, &col, status_bg, white);
     } else if (report.stats.tests_passed > 0) {
         for (" pass! ") |c| writeChar(win, c, &col, status_bg, white);
@@ -504,51 +570,32 @@ fn renderHeader(
 }
 
 /// Render the main content area with build output.
-fn renderContent(
-    win: vaxis.Window,
-    report: *const types.Report,
-    view: *const types.ViewState,
-    project_root: []const u8,
-) void {
+/// Uses VisibleLineIterator to separate "which lines" from "how to draw".
+fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
     const content_height = win.height;
     if (content_height == 0) return;
 
-    const text_buf = report.textBuf();
+    // Empty state
+    if (ctx.report.lines_len == 0) {
+        _ = printText(win, "Waiting for build output...", .{ .fg = colors.muted }, .{});
+        return;
+    }
+
+    const text_buf = ctx.report.textBuf();
+    var iter = VisibleLineIterator.init(ctx.report, ctx.view);
     var row: u16 = 0;
-    var prev_blank = false;
-    var lines_skipped: usize = 0;
     var seen_test_fail: bool = false;
 
-    for (report.lines(), 0..) |line, line_idx| {
-        const should_show = view.expanded or line.kind.shownInTerse();
-        if (!should_show) continue;
-
-        // Collapse consecutive blanks in terse mode
-        if (!view.expanded and line.kind == .blank) {
-            if (prev_blank) continue;
-            prev_blank = true;
-        } else {
-            prev_blank = false;
-        }
-
-        // Handle scrolling
-        if (lines_skipped < view.scroll) {
-            lines_skipped += 1;
-            continue;
-        }
-
-        // Stop if we've filled the screen
+    while (iter.next()) |item| {
         if (row >= content_height) break;
 
-        // Highlight selected item
-        const is_selected = line.item_index == view.selected_item and
-            line.kind.isItemStart();
-        const bg_color: vaxis.Color = if (is_selected)
-            colors.selected_bg
-        else
-            .default;
+        const line = item.line;
 
-        // Special rendering for test failure headers (Bacon-style badge + expected/actual)
+        // Selection highlighting
+        const is_selected = line.item_index == ctx.view.selected_item and line.kind.isItemStart();
+        const bg_color: vaxis.Color = if (is_selected) colors.selected_bg else .default;
+
+        // Special rendering for test failure headers (Bacon-style badge)
         if (line.kind == .test_fail_header) {
             // Add blank line before 2nd+ test failures
             if (seen_test_fail and row < content_height) {
@@ -556,36 +603,30 @@ fn renderContent(
             }
             seen_test_fail = true;
             const remaining_rows = content_height -| row;
-            const rows_used = renderTestFailureLine(win, line, report, row, bg_color, @intCast(line_idx), remaining_rows);
-            row += rows_used;
-            // Add blank line after the failure block
+            row += renderTestFailureLine(win, line.*, ctx.report, row, bg_color, item.line_index, remaining_rows);
+            // Add blank line after
             if (row < content_height) {
                 row += 1;
             }
-            continue; // Skip the normal row increment
-        } else {
-            var text = line.getText(text_buf);
-            const fg_color = getLineColor(line.kind, view.expanded);
-
-            // In terse mode, clean up stack trace location lines (strip path prefix and memory address)
-            if (!view.expanded and line.kind == .note_location) {
-                text = cleanStackTraceLine(text, project_root);
-            }
-
-            printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row);
+            continue;
         }
 
+        // Normal line rendering
+        var text = line.getText(text_buf);
+        const fg_color = getLineColor(line.kind, ctx.view.expanded);
+
+        // In terse mode, clean up stack trace paths
+        if (!ctx.view.expanded and line.kind == .note_location) {
+            text = cleanStackTraceLine(text, ctx.project_root);
+        }
+
+        printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row);
         row += 1;
 
-        // Add blank line after test summary for visual separation
+        // Visual separation after test summary
         if (line.kind == .test_summary and row < content_height) {
             row += 1;
         }
-    }
-
-    // Show empty state if no lines
-    if (report.lines_len == 0) {
-        _ = printText(win, "Waiting for build output...", .{ .fg = colors.muted }, .{});
     }
 }
 
@@ -676,4 +717,122 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
             .bg = colors.header_bg,
         }, .{ .row_offset = @intCast(i + 1) });
     }
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+test "VisibleLineIterator - basic iteration" {
+    var report = types.Report.init();
+
+    // Add some lines with text
+    const text1 = try report.appendText("error line");
+    try report.appendLine(.{
+        .text_offset = text1.offset,
+        .text_len = text1.len,
+        .kind = .error_location,
+        .stream = .stderr,
+        .item_index = 0,
+        .location = null,
+    });
+
+    const text2 = try report.appendText("source line");
+    try report.appendLine(.{
+        .text_offset = text2.offset,
+        .text_len = text2.len,
+        .kind = .source_line,
+        .stream = .stderr,
+        .item_index = 0,
+        .location = null,
+    });
+
+    const view = types.ViewState.init();
+    var iter = VisibleLineIterator.init(&report, &view);
+
+    // Should get both lines
+    const item1 = iter.next();
+    try std.testing.expect(item1 != null);
+    try std.testing.expectEqual(types.LineKind.error_location, item1.?.line.kind);
+
+    const item2 = iter.next();
+    try std.testing.expect(item2 != null);
+    try std.testing.expectEqual(types.LineKind.source_line, item2.?.line.kind);
+
+    // No more lines
+    try std.testing.expect(iter.next() == null);
+}
+
+test "VisibleLineIterator - blank collapsing in terse mode" {
+    var report = types.Report.init();
+
+    // Add: error, blank, blank, source
+    const text1 = try report.appendText("error line");
+    try report.appendLine(.{
+        .text_offset = text1.offset,
+        .text_len = text1.len,
+        .kind = .error_location,
+        .stream = .stderr,
+        .item_index = 0,
+        .location = null,
+    });
+
+    // Two consecutive blanks
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .stream = .stderr, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .stream = .stderr, .item_index = 0, .location = null });
+
+    const text2 = try report.appendText("source line");
+    try report.appendLine(.{
+        .text_offset = text2.offset,
+        .text_len = text2.len,
+        .kind = .source_line,
+        .stream = .stderr,
+        .item_index = 0,
+        .location = null,
+    });
+
+    var view = types.ViewState.init();
+    view.expanded = false; // Terse mode
+
+    var iter = VisibleLineIterator.init(&report, &view);
+
+    // Should get: error, ONE blank (collapsed), source
+    try std.testing.expectEqual(types.LineKind.error_location, iter.next().?.line.kind);
+    try std.testing.expectEqual(types.LineKind.blank, iter.next().?.line.kind);
+    try std.testing.expectEqual(types.LineKind.source_line, iter.next().?.line.kind);
+    try std.testing.expect(iter.next() == null);
+}
+
+test "VisibleLineIterator - scroll handling" {
+    var report = types.Report.init();
+
+    // Add 5 error lines
+    var i: u16 = 0;
+    while (i < 5) : (i += 1) {
+        const text = try report.appendText("error");
+        try report.appendLine(.{
+            .text_offset = text.offset,
+            .text_len = text.len,
+            .kind = .error_location,
+            .stream = .stderr,
+            .item_index = 0,
+            .location = null,
+        });
+    }
+
+    var view = types.ViewState.init();
+    view.scroll = 3; // Skip first 3
+
+    var iter = VisibleLineIterator.init(&report, &view);
+
+    // Should only get 2 lines (indices 3 and 4)
+    const item1 = iter.next();
+    try std.testing.expect(item1 != null);
+    try std.testing.expectEqual(@as(u16, 3), item1.?.line_index);
+
+    const item2 = iter.next();
+    try std.testing.expect(item2 != null);
+    try std.testing.expectEqual(@as(u16, 4), item2.?.line_index);
+
+    try std.testing.expect(iter.next() == null);
 }

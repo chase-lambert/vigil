@@ -15,10 +15,10 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const types = @import("types.zig");
 const parse = @import("parse.zig");
-const process = @import("process.zig");
 const watch_mod = @import("watch.zig");
 const render = @import("render.zig");
 const input = @import("input.zig");
+const assert = std.debug.assert;
 
 /// Event type for the vaxis Loop
 pub const Event = union(enum) {
@@ -212,9 +212,9 @@ pub const App = struct {
         const args = if (self.build_args_len > 0)
             self.getBuildArgs()
         else
-            process.defaultBuildArgs();
+            defaultBuildArgs();
 
-        var result = try process.runBuild(self.alloc, args);
+        var result = try runBuildCmd(self.alloc, args);
         defer result.deinit(self.alloc);
 
         // Parse the output into the global report
@@ -475,21 +475,90 @@ pub const App = struct {
 
     /// Render the current state.
     fn renderView(self: *App) void {
-        render.render(
-            &self.vx,
-            self.report(),
-            &self.view,
-            self.watcher.active,
-            self.getJobName(),
-            self.getProjectName(),
-            self.getProjectRoot(),
-        );
+        render.render(&self.vx, .{
+            .report = self.report(),
+            .view = &self.view,
+            .watching = self.watcher.active,
+            .job_name = self.getJobName(),
+            .project_name = self.getProjectName(),
+            .project_root = self.getProjectRoot(),
+        });
 
         if (self.view.mode == .help) {
             render.renderHelp(&self.vx);
         }
     }
 };
+
+// =============================================================================
+// Build Execution (merged from process.zig - was too shallow to justify module)
+// =============================================================================
+
+/// Result of running a build command.
+pub const BuildResult = struct {
+    /// Combined stdout + stderr output
+    output: []const u8,
+    /// Exit code (null if killed/crashed)
+    exit_code: ?u8,
+    /// Whether the process was killed
+    was_killed: bool,
+
+    pub fn deinit(self: *BuildResult, alloc: std.mem.Allocator) void {
+        if (self.output.len > 0) {
+            alloc.free(self.output);
+        }
+        self.* = undefined;
+    }
+};
+
+/// Run a build command and capture its output.
+/// Prefers stderr (where Zig errors go), falls back to stdout.
+fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult {
+    assert(args.len > 0);
+
+    const result = try std.process.Child.run(.{
+        .allocator = alloc,
+        .argv = args,
+        .max_output_bytes = types.MAX_TEXT_SIZE,
+    });
+
+    // Prefer stderr (where errors go), fall back to stdout
+    var output: []const u8 = undefined;
+
+    if (result.stderr.len > 0) {
+        output = result.stderr;
+        if (result.stdout.len > 0) {
+            alloc.free(result.stdout);
+        }
+    } else if (result.stdout.len > 0) {
+        output = result.stdout;
+        if (result.stderr.len > 0) {
+            alloc.free(result.stderr);
+        }
+    } else {
+        output = "";
+    }
+
+    const exit_code: ?u8 = switch (result.term) {
+        .Exited => |code| code,
+        .Signal, .Stopped, .Unknown => null,
+    };
+
+    return BuildResult{
+        .output = output,
+        .exit_code = exit_code,
+        .was_killed = result.term != .Exited,
+    };
+}
+
+/// Default build command when none specified.
+fn defaultBuildArgs() []const []const u8 {
+    return &[_][]const u8{ "zig", "build" };
+}
+
+// =============================================================================
+// Project Detection
+// =============================================================================
 
 /// Parse project name from build.zig.zon content.
 /// Handles ".name = .identifier" (Zig 0.15) and ".name = \"string\"" (older)
