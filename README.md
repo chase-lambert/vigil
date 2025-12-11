@@ -26,8 +26,10 @@ cp zig-out/bin/vigil ~/.local/bin/
 vigil                           # Default: zig build
 vigil test                      # Run tests
 vigil -Doptimize=ReleaseFast    # Pass options to zig build
-vigil test -Dfilter=foo         # Run filtered tests
+vigil test -Dtest-filter=foo    # Filter tests (if your build.zig supports it)
 ```
+
+> **Note**: `-D` options are project-specific. Options like `-Dtest-filter` only work if your `build.zig` exposes them via `b.option()`.
 
 ## Keybindings
 

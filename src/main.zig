@@ -99,7 +99,8 @@ fn printHelp() void {
         \\    vigil                      # Watch and run 'zig build'
         \\    vigil test                 # Watch and run 'zig build test'
         \\    vigil -Doptimize=ReleaseFast
-        \\    vigil test -Dfilter=foo
+        \\
+        \\Note: -D options are project-specific (defined in build.zig).
         \\
         \\KEYBINDINGS:
         \\    j/k     Scroll down/up
