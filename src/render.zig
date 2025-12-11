@@ -315,6 +315,53 @@ fn cleanStackTraceLine(text: []const u8, project_root: []const u8) []const u8 {
     return path_part;
 }
 
+/// Render an error line with numbered badge.
+/// Returns the number of rows used (always 1).
+fn renderErrorLine(
+    win: vaxis.Window,
+    text: []const u8,
+    row: u16,
+    error_num: u16,
+) u16 {
+    var col: u16 = 0;
+    const bg_color: vaxis.Color = .default;
+
+    // Render badge: " N " with colored background (N can be multi-digit)
+    const badge_bg = colors.fail_badge_bg;
+    const white = vaxis.Color{ .rgb = .{ 0xff, 0xff, 0xff } };
+
+    // Create 1-row child window so writeNumber's row 0 = our actual row
+    const row_win = win.child(.{ .y_off = row, .height = 1 });
+
+    row_win.writeCell(col, 0, .{
+        .char = .{ .grapheme = " ", .width = 1 },
+        .style = .{ .bg = badge_bg, .fg = white, .bold = true },
+    });
+    col += 1;
+
+    // Write error number (supports multi-digit, e.g. [12] not just [1]-[9])
+    writeNumber(row_win, error_num, &col, badge_bg, white);
+
+    row_win.writeCell(col, 0, .{
+        .char = .{ .grapheme = " ", .width = 1 },
+        .style = .{ .bg = badge_bg, .fg = white, .bold = true },
+    });
+    col += 1;
+    col += 1; // Gap after badge
+
+    // Render the full error line text
+    for (text) |c| {
+        if (col >= win.width) break;
+        win.writeCell(col, row, .{
+            .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+            .style = .{ .fg = colors.error_fg, .bg = bg_color },
+        });
+        col += 1;
+    }
+
+    return 1; // Always uses exactly 1 row
+}
+
 /// Render a test failure with badge and expected/actual values.
 /// Returns the number of rows used.
 fn renderTestFailureLine(
@@ -588,12 +635,31 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
     var iter = VisibleLineIterator.init(ctx.report, ctx.view);
     var row: u16 = 0;
     var seen_test_fail: bool = false;
+    var seen_error: bool = false;
+    var error_count: u16 = 0;
 
     while (iter.next()) |item| {
         if (row >= content_height) break;
 
         const line = item.line;
         const bg_color: vaxis.Color = .default;
+
+        // Special rendering for error location headers (with numbered badges)
+        if (line.kind == .error_location) {
+            // Add blank line before 2nd+ errors
+            if (seen_error and row < content_height) {
+                row += 1;
+            }
+            seen_error = true;
+            error_count += 1;
+            const text = line.getText(text_buf);
+            row += renderErrorLine(win, text, row, error_count);
+            // Add blank line after (before source/pointer lines)
+            if (row < content_height) {
+                row += 1;
+            }
+            continue;
+        }
 
         // Special rendering for test failure headers
         if (line.kind == .test_fail_header) {
@@ -609,6 +675,11 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
                 row += 1;
             }
             continue;
+        }
+
+        // Add blank line before notes for visual separation from preceding error context
+        if (line.kind == .note_location and row < content_height) {
+            row += 1;
         }
 
         // Normal line rendering

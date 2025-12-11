@@ -61,6 +61,7 @@ vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 - [x] Job switching (`b`/`t` for build/test)
 - [x] Test output parsing (Zig 0.15 format)
 - [x] Bacon-style test failure display (`expected:`/`found:` values)
+- [x] Numbered error badges with visual grouping
 - [x] Project name detection from `build.zig.zon`
 - [x] Clean stack traces (strips std library frames in terse mode)
 

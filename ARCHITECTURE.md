@@ -373,6 +373,17 @@ Trade-off between TigerStyle (no heap) and pure functional (no globals). We chos
 
 This is "functional core, imperative shell"—decision-making is pure, mutation is centralized.
 
+### Why separate LineKind classification from visual rendering?
+
+The parser classifies each line into a specific `LineKind` (error_location, note_location, source_line, etc.) based purely on content. The renderer then applies visual rules (badges, spacing, colors) based on those kinds.
+
+This separation allows:
+- Adding visual treatments (blank lines, badges) without touching the parser
+- Different visual modes (terse/full) by filtering on `LineKind.shownInTerse()`
+- Easy incremental improvements to display
+
+**Example**: Adding a blank line before `note_location` lines was a 3-line change in render.zig. The parser already knew what notes were—we just needed to tell the renderer how to space them.
+
 ---
 
 ## Test Failure Display
