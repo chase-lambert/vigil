@@ -548,18 +548,21 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
         status_ok_bg;
 
     if (report.stats.tests_failed > 0) {
-        // " N fail "
+        // " N fail " or " N fails "
         writeChar(win, ' ', &col, status_bg, white);
         writeNumber(win, report.stats.tests_failed, &col, status_bg, white);
-        for (" fail ") |c| writeChar(win, c, &col, status_bg, white);
+        const fail_text: []const u8 = if (report.stats.tests_failed == 1) " fail " else " fails ";
+        for (fail_text) |c| writeChar(win, c, &col, status_bg, white);
     } else if (report.stats.errors > 0) {
         writeChar(win, ' ', &col, status_bg, white);
         writeNumber(win, report.stats.errors, &col, status_bg, white);
-        for (" error ") |c| writeChar(win, c, &col, status_bg, white);
+        const error_text: []const u8 = if (report.stats.errors == 1) " error " else " errors ";
+        for (error_text) |c| writeChar(win, c, &col, status_bg, white);
     } else if (report.stats.warnings > 0) {
         writeChar(win, ' ', &col, status_bg, white);
         writeNumber(win, report.stats.warnings, &col, status_bg, white);
-        for (" warn ") |c| writeChar(win, c, &col, status_bg, white);
+        const warn_text: []const u8 = if (report.stats.warnings == 1) " warn " else " warns ";
+        for (warn_text) |c| writeChar(win, c, &col, status_bg, white);
     } else if (report.stats.tests_passed > 0) {
         for (" pass! ") |c| writeChar(win, c, &col, status_bg, white);
     } else {
