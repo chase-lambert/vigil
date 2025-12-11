@@ -33,7 +33,6 @@ pub const RenderContext = struct {
 pub const VisibleLineIterator = struct {
     report: *const types.Report,
     expanded: bool,
-    show_all: bool,
     scroll: u16,
 
     // Internal state
@@ -51,7 +50,6 @@ pub const VisibleLineIterator = struct {
         return .{
             .report = report,
             .expanded = view.expanded,
-            .show_all = view.show_all_output,
             .scroll = view.scroll,
             .line_index = 0,
             .visible_count = 0,
@@ -67,8 +65,7 @@ pub const VisibleLineIterator = struct {
             self.line_index += 1;
 
             const line = &lines[idx];
-            // In show_all mode (run job), show everything. Otherwise filter by terse/expanded.
-            const should_show = self.show_all or self.expanded or line.kind.shownInTerse();
+            const should_show = self.expanded or line.kind.shownInTerse();
             if (!should_show) continue;
 
             // Collapse consecutive blanks in terse mode
@@ -616,7 +613,7 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
 
         // Normal line rendering
         var text = line.getText(text_buf);
-        const fg_color = getLineColor(line.kind, ctx.view.expanded, ctx.view.show_all_output);
+        const fg_color = getLineColor(line.kind, ctx.view.expanded);
 
         // In terse mode, clean up stack trace paths
         if (!ctx.view.expanded and line.kind == .note_location) {
@@ -661,7 +658,7 @@ fn renderFooter(
 }
 
 /// Get the display color for a line type.
-fn getLineColor(kind: types.LineKind, expanded: bool, show_all: bool) vaxis.Color {
+fn getLineColor(kind: types.LineKind, expanded: bool) vaxis.Color {
     return switch (kind) {
         .error_location => colors.error_fg,
         .note_location => colors.note_fg,
@@ -670,9 +667,8 @@ fn getLineColor(kind: types.LineKind, expanded: bool, show_all: bool) vaxis.Colo
         .test_expected_value => colors.muted,
         .test_summary => colors.muted,
         .source_line, .pointer_line, .blank => .default,
-        // In show_all mode (run job), use default color so output is readable.
         // In expanded mode (full view), use muted color for filtered content.
-        else => if (show_all) .default else if (expanded) colors.muted else .default,
+        else => if (expanded) colors.muted else .default,
     };
 }
 

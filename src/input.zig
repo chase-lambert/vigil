@@ -81,11 +81,10 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
         return .start_search;
     }
 
-    // Job shortcuts: b=build, t=test, r=run
+    // Job shortcuts: b=build, t=test
     const cp = key.codepoint;
     if (cp == 'b') return .{ .select_job = 0 }; // build
     if (cp == 't') return .{ .select_job = 1 }; // test
-    if (cp == 'r') return .{ .select_job = 2 }; // run
 
     return .none;
 }
@@ -197,11 +196,9 @@ test "handleNormalMode - actions" {
 test "handleNormalMode - job selection" {
     const build_action = handleNormalMode(testKey('b', .{}));
     const test_action = handleNormalMode(testKey('t', .{}));
-    const run_action = handleNormalMode(testKey('r', .{}));
 
     try std.testing.expectEqual(Action{ .select_job = 0 }, build_action);
     try std.testing.expectEqual(Action{ .select_job = 1 }, test_action);
-    try std.testing.expectEqual(Action{ .select_job = 2 }, run_action);
 }
 
 test "handleNormalMode - unmapped keys return none" {

@@ -212,9 +212,7 @@ pub const App = struct {
         else
             defaultBuildArgs();
 
-        // Use timeout for run job to prevent hanging on long-running programs
-        const timeout: ?u32 = if (self.view.show_all_output) RUN_TIMEOUT_MS else null;
-        var result = try runBuildCmd(self.alloc, args, timeout);
+        var result = try runBuildCmd(self.alloc, args);
         defer result.deinit(self.alloc);
 
         // Parse the output into the global report
@@ -380,16 +378,14 @@ pub const App = struct {
         self.needs_redraw = true;
     }
 
-    /// Switch to a different job (build=0, test=1, run=2).
+    /// Switch to a different job (build=0, test=1).
     fn switchJob(self: *App, job_idx: u8) void {
-        // Simple switch - no fancy comptime structs needed
         switch (job_idx) {
             0 => { // build
                 self.build_args_buf[0] = "zig";
                 self.build_args_buf[1] = "build";
                 self.build_args_len = 2;
                 self.setJobName("build");
-                self.view.show_all_output = false;
             },
             1 => { // test
                 self.build_args_buf[0] = "zig";
@@ -397,15 +393,6 @@ pub const App = struct {
                 self.build_args_buf[2] = "test";
                 self.build_args_len = 3;
                 self.setJobName("test");
-                self.view.show_all_output = false;
-            },
-            2 => { // run
-                self.build_args_buf[0] = "zig";
-                self.build_args_buf[1] = "build";
-                self.build_args_buf[2] = "run";
-                self.build_args_len = 3;
-                self.setJobName("run");
-                self.view.show_all_output = true;
             },
             else => return,
         }
@@ -450,114 +437,32 @@ pub const BuildResult = struct {
     }
 };
 
-/// Timeout for run job (10 seconds)
-const RUN_TIMEOUT_MS: u32 = 10_000;
-
-/// Run a build command and capture its output.
-/// For successful runs: prefer stdout (program output).
-/// For failed builds: prefer stderr (error messages).
-fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8, timeout_ms: ?u32) !BuildResult {
+/// Run a build command and capture its output (stderr only).
+/// Zig outputs all build/test errors to stderr; stdout is unused.
+fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult {
     assert(args.len > 0);
 
-    // Use timeout version if specified
-    if (timeout_ms) |ms| {
-        return runBuildCmdWithTimeout(alloc, args, ms);
-    }
-
+    // Use the simple run() API - Zig's Child.run handles piping internally
     const result = try std.process.Child.run(.{
         .allocator = alloc,
         .argv = args,
         .max_output_bytes = types.MAX_TEXT_SIZE,
     });
 
-    return processRunResult(alloc, result.stdout, result.stderr, result.term);
-}
-
-/// Run a command with a timeout. Kills process if it exceeds timeout.
-fn runBuildCmdWithTimeout(alloc: std.mem.Allocator, args: []const []const u8, timeout_ms: u32) !BuildResult {
-    var child = std.process.Child.init(args, alloc);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    try child.spawn();
-
-    // Watchdog: kills process after timeout
-    var cancelled = std.atomic.Value(bool).init(false);
-    const watchdog = try std.Thread.spawn(.{}, watchdogThread, .{ &child, &cancelled, timeout_ms });
-
-    // Collect output (blocks until process exits or is killed)
-    const max_output = types.MAX_TEXT_SIZE;
-    var stdout_list: std.ArrayList(u8) = .empty;
-    var stderr_list: std.ArrayList(u8) = .empty;
-    defer stdout_list.deinit(alloc);
-    defer stderr_list.deinit(alloc);
-
-    child.collectOutput(alloc, &stdout_list, &stderr_list, max_output) catch {};
-
-    // Signal watchdog to stop
-    cancelled.store(true, .release);
-
-    // Wait for process termination
-    const term = child.wait() catch {
-        watchdog.join();
-        return BuildResult{ .output = "", .exit_code = null, .was_killed = true };
-    };
-    watchdog.join();
-
-    // Copy output to owned slices
-    const stdout = if (stdout_list.items.len > 0) try alloc.dupe(u8, stdout_list.items) else "";
-    const stderr = if (stderr_list.items.len > 0) try alloc.dupe(u8, stderr_list.items) else "";
-
-    return processRunResult(alloc, stdout, stderr, term);
-}
-
-fn watchdogThread(child: *std.process.Child, cancelled: *std.atomic.Value(bool), timeout_ms: u32) void {
-    const check_interval_ms: u32 = 100;
-    var elapsed: u32 = 0;
-
-    while (elapsed < timeout_ms) {
-        std.Thread.sleep(check_interval_ms * std.time.ns_per_ms);
-        elapsed += check_interval_ms;
-        if (cancelled.load(.acquire)) return;
+    // We only care about stderr - free stdout immediately
+    if (result.stdout.len > 0) {
+        alloc.free(result.stdout);
     }
 
-    // Timeout reached - kill the process
-    _ = child.kill() catch {};
-}
-
-/// Process stdout/stderr from a completed run, selecting appropriate output.
-fn processRunResult(alloc: std.mem.Allocator, stdout: []const u8, stderr: []const u8, term: std.process.Child.Term) BuildResult {
-    const exit_code: ?u8 = switch (term) {
+    const exit_code: ?u8 = switch (result.term) {
         .Exited => |code| code,
         .Signal, .Stopped, .Unknown => null,
     };
 
-    // For successful runs (exit code 0), prefer stdout since that's where
-    // program output goes. Zig's "Compiling..." messages go to stderr,
-    // so on success we want the actual program output from stdout.
-    // For failed builds, prefer stderr since that's where errors are.
-    var output: []const u8 = undefined;
-
-    if (exit_code == 0 and stdout.len > 0) {
-        output = stdout;
-        if (stderr.len > 0) {
-            alloc.free(stderr);
-        }
-    } else if (stderr.len > 0) {
-        output = stderr;
-        if (stdout.len > 0) {
-            alloc.free(stdout);
-        }
-    } else if (stdout.len > 0) {
-        output = stdout;
-    } else {
-        output = "";
-    }
-
     return BuildResult{
-        .output = output,
+        .output = result.stderr,
         .exit_code = exit_code,
-        .was_killed = term != .Exited,
+        .was_killed = result.term != .Exited,
     };
 }
 

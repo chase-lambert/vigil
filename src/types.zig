@@ -384,8 +384,6 @@ pub const ViewState = struct {
     search_len: u8,
     /// Current mode
     mode: Mode,
-    /// Show all output (for run mode where we want to see program output)
-    show_all_output: bool,
 
     pub const Mode = enum {
         normal,
@@ -401,7 +399,6 @@ pub const ViewState = struct {
             .search = undefined,
             .search_len = 0,
             .mode = .normal,
-            .show_all_output = false,
         };
     }
 

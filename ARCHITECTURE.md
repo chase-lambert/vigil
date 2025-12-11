@@ -64,7 +64,7 @@ User runs: vigil
            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  main.zig                                                   │
-│  - Parse CLI args (test/run/build)                          │
+│  - Parse CLI args (test/build)                              │
 │  - Create App, configure it                                 │
 │  - Run initial build, start event loop                      │
 └─────────────────────────────────────────────────────────────┘

@@ -9,7 +9,7 @@ Shows you the errors that matter, hides the noise.
 - **Terse Mode**: Filters build noise, shows only errors and context
 - **Full Mode**: Toggle to see complete output when needed
 - **File Watching**: Auto-rebuild on source changes (pause with `p`)
-- **Multiple Jobs**: Switch between build (`b`), test (`t`), run (`r`)
+- **Build & Test**: Switch between build (`b`) and test (`t`) with a keypress
 
 ## Installation
 
@@ -25,7 +25,6 @@ cp zig-out/bin/vigil ~/.local/bin/
 ```bash
 vigil           # Default: zig build
 vigil test      # Run tests
-vigil run       # Run the project
 vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 ```
 
@@ -37,7 +36,7 @@ vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 | `g`/`G` | Jump to top/bottom |
 | `Space` | Toggle terse/full view |
 | `w` | Toggle line wrap |
-| `b`/`t`/`r` | Switch to build/test/run job |
+| `b`/`t` | Switch to build/test job |
 | `p` | Pause/resume watching |
 | `?` | Help |
 | `q` | Quit |
@@ -59,7 +58,7 @@ vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 - [x] Line wrap toggle (`w`)
 - [x] File watching with pause/resume (`p`)
 - [x] Help overlay (`?`)
-- [x] Job switching (`b`/`t`/`r` for build/test/run)
+- [x] Job switching (`b`/`t` for build/test)
 - [x] Test output parsing (Zig 0.15 format)
 - [x] Bacon-style test failure display (`expected:`/`found:` values)
 - [x] Project name detection from `build.zig.zon`
