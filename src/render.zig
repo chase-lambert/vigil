@@ -498,7 +498,7 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     const status_fail_bg = vaxis.Color{ .rgb = .{ 0xcc, 0x66, 0x66 } }; // Red
     const status_warn_bg = vaxis.Color{ .rgb = .{ 0xcc, 0xaa, 0x55 } }; // Orange
     const mode_terse_bg = vaxis.Color{ .rgb = .{ 0x55, 0x55, 0x66 } }; // Muted gray-blue
-    const mode_verbose_bg = vaxis.Color{ .rgb = .{ 0x66, 0x55, 0x66 } }; // Muted purple
+    const mode_full_bg = vaxis.Color{ .rgb = .{ 0x66, 0x55, 0x66 } }; // Muted purple
     const watch_on_bg = vaxis.Color{ .rgb = .{ 0x55, 0x77, 0x55 } }; // Muted green
     const watch_off_bg = vaxis.Color{ .rgb = .{ 0x77, 0x55, 0x55 } }; // Muted red
     const white = vaxis.Color{ .rgb = .{ 0xff, 0xff, 0xff } };
@@ -557,9 +557,9 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     }
     col += 1; // Gap
 
-    // 4. Mode indicator (terse/verbose)
-    const mode_bg = if (view.expanded) mode_verbose_bg else mode_terse_bg;
-    const mode_text: []const u8 = if (view.expanded) " verbose " else " terse ";
+    // 4. Mode indicator (terse/full)
+    const mode_bg = if (view.expanded) mode_full_bg else mode_terse_bg;
+    const mode_text: []const u8 = if (view.expanded) " full " else " terse ";
     for (mode_text) |c| writeChar(win, c, &col, mode_bg, white);
     col += 1; // Gap
 
@@ -699,14 +699,11 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
         "",
         "  j/k        Scroll down / up",
         "  g/G        Jump to top / bottom",
-        "  n/N        Next / prev error",
         "",
         "  Space      Toggle terse / full",
-        "  Enter      Open in $EDITOR",
         "",
-        "  b/t/x      Switch to build / test / run",
-        "  r          Rebuild current job",
-        "  w          Toggle file watching",
+        "  b/t/r      Switch to build / test / run",
+        "  p          Pause / resume watching",
         "",
         "  q          Quit",
     };

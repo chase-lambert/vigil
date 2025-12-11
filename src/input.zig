@@ -11,7 +11,6 @@ const types = @import("types.zig");
 pub const Action = union(enum) {
     none,
     quit,
-    rebuild,
     toggle_expanded,
     toggle_watch,
     scroll_up,
@@ -20,15 +19,12 @@ pub const Action = union(enum) {
     scroll_page_down,
     scroll_top,
     scroll_bottom,
-    next_error,
-    prev_error,
-    open_in_editor,
     start_search,
     cancel,
     confirm,
     show_help,
     hide_help,
-    select_job: u8, // Job index 0-9
+    select_job: u8, // Job index 0-2
 };
 
 /// Process a key event in normal mode.
@@ -43,18 +39,13 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
         return .show_help;
     }
 
-    // Rebuild
-    if (key.matches('r', .{})) {
-        return .rebuild;
-    }
-
     // Toggle view mode
     if (key.matches(' ', .{}) or key.matches(vaxis.Key.tab, .{})) {
         return .toggle_expanded;
     }
 
-    // Toggle watching
-    if (key.matches('w', .{})) {
+    // Toggle watching (pause/resume)
+    if (key.matches('p', .{})) {
         return .toggle_watch;
     }
 
@@ -78,29 +69,17 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
         return .scroll_bottom;
     }
 
-    // Error navigation
-    if (key.matches('n', .{})) {
-        return .next_error;
-    }
-    if (key.matches('N', .{}) or key.matches('n', .{ .shift = true })) {
-        return .prev_error;
-    }
-
-    // Open in editor
-    if (key.matches(vaxis.Key.enter, .{})) {
-        return .open_in_editor;
-    }
 
     // Search
     if (key.matches('/', .{})) {
         return .start_search;
     }
 
-    // Job shortcuts
+    // Job shortcuts: b=build, t=test, r=run
     const cp = key.codepoint;
-    if (cp == 't') return .{ .select_job = 1 }; // test
     if (cp == 'b') return .{ .select_job = 0 }; // build
-    if (cp == 'x') return .{ .select_job = 2 }; // run
+    if (cp == 't') return .{ .select_job = 1 }; // test
+    if (cp == 'r') return .{ .select_job = 2 }; // run
 
     return .none;
 }
@@ -194,33 +173,25 @@ test "handleNormalMode - navigation keys" {
     // Jump to top/bottom
     try std.testing.expectEqual(Action.scroll_top, handleNormalMode(testKey('g', .{})));
     try std.testing.expectEqual(Action.scroll_bottom, handleNormalMode(testKey('G', .{})));
-
-    // Error navigation
-    try std.testing.expectEqual(Action.next_error, handleNormalMode(testKey('n', .{})));
-    try std.testing.expectEqual(Action.prev_error, handleNormalMode(testKey('N', .{})));
 }
 
 test "handleNormalMode - actions" {
-    // Rebuild
-    try std.testing.expectEqual(Action.rebuild, handleNormalMode(testKey('r', .{})));
     // Toggle view
     try std.testing.expectEqual(Action.toggle_expanded, handleNormalMode(testKey(' ', .{})));
     try std.testing.expectEqual(Action.toggle_expanded, handleNormalMode(testKey(vaxis.Key.tab, .{})));
-    // Toggle watch
-    try std.testing.expectEqual(Action.toggle_watch, handleNormalMode(testKey('w', .{})));
+    // Toggle watch (pause)
+    try std.testing.expectEqual(Action.toggle_watch, handleNormalMode(testKey('p', .{})));
     // Help
     try std.testing.expectEqual(Action.show_help, handleNormalMode(testKey('?', .{})));
     try std.testing.expectEqual(Action.show_help, handleNormalMode(testKey('h', .{})));
     // Search
     try std.testing.expectEqual(Action.start_search, handleNormalMode(testKey('/', .{})));
-    // Editor
-    try std.testing.expectEqual(Action.open_in_editor, handleNormalMode(testKey(vaxis.Key.enter, .{})));
 }
 
 test "handleNormalMode - job selection" {
     const build_action = handleNormalMode(testKey('b', .{}));
     const test_action = handleNormalMode(testKey('t', .{}));
-    const run_action = handleNormalMode(testKey('x', .{}));
+    const run_action = handleNormalMode(testKey('r', .{}));
 
     try std.testing.expectEqual(Action{ .select_job = 0 }, build_action);
     try std.testing.expectEqual(Action{ .select_job = 1 }, test_action);

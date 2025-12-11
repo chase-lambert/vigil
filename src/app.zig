@@ -307,11 +307,6 @@ pub const App = struct {
         switch (action) {
             .none => {},
             .quit => self.running = false,
-            .rebuild => {
-                self.runBuild() catch |err| {
-                    std.log.err("Build failed: {}", .{err});
-                };
-            },
             .toggle_expanded => {
                 self.view.expanded = !self.view.expanded;
                 self.view.scroll = 0;
@@ -334,9 +329,6 @@ pub const App = struct {
                 self.view.scroll = visible;
                 self.needs_redraw = true;
             },
-            .next_error => self.navigateError(1),
-            .prev_error => self.navigateError(-1),
-            .open_in_editor => self.openInEditor(),
             .start_search => {
                 self.view.mode = .searching;
                 self.view.search_len = 0;
@@ -382,29 +374,6 @@ pub const App = struct {
         self.needs_redraw = true;
     }
 
-    /// Navigate to next/previous error.
-    fn navigateError(self: *App, direction: i32) void {
-        const rpt = self.report();
-        if (rpt.item_starts_len == 0) return;
-
-        const current = self.view.selected_item;
-        var new_idx: i32 = @as(i32, current) + direction;
-
-        if (new_idx < 0) {
-            new_idx = 0;
-        } else if (new_idx >= @as(i32, @intCast(rpt.item_starts_len))) {
-            new_idx = @intCast(rpt.item_starts_len - 1);
-        }
-
-        self.view.selected_item = @intCast(new_idx);
-
-        // Scroll to show the selected item
-        const line_idx = rpt.itemStarts()[@intCast(new_idx)];
-        self.view.scroll = line_idx;
-
-        self.needs_redraw = true;
-    }
-
     /// Switch to a different job (build=0, test=1, run=2).
     fn switchJob(self: *App, job_idx: u8) void {
         // Simple switch - no fancy comptime structs needed
@@ -432,43 +401,6 @@ pub const App = struct {
             else => return,
         }
         self.runBuild() catch {};
-    }
-
-    /// Open the current error location in $EDITOR.
-    fn openInEditor(self: *App) void {
-        const rpt = self.report();
-
-        // Find the currently selected item's location
-        if (rpt.item_starts_len == 0) return;
-
-        const item_idx = self.view.selected_item;
-        if (item_idx >= rpt.item_starts_len) return;
-
-        const line_idx = rpt.itemStarts()[item_idx];
-        if (line_idx >= rpt.lines_len) return;
-
-        const line = &rpt.lines()[line_idx];
-        const location = line.location orelse return;
-
-        // Get the line text from the shared buffer
-        const text_buf = rpt.textBuf();
-        const path = location.getPath(line.getText(text_buf));
-        if (path.len == 0) return;
-
-        // Get editor from environment
-        const editor = std.posix.getenv("EDITOR") orelse "vim";
-
-        // Format line number argument (most editors use +N)
-        var line_arg_buf: [32]u8 = undefined;
-        const line_arg = std.fmt.bufPrint(&line_arg_buf, "+{d}", .{location.line}) catch return;
-
-        // Spawn editor (don't wait, let it run in background)
-        // Note: This is simplified - in practice you'd want to
-        // exit alt screen, run editor, then re-enter
-        _ = std.process.Child.run(.{
-            .allocator = self.alloc,
-            .argv = &[_][]const u8{ editor, line_arg, path },
-        }) catch return;
     }
 
     /// Render the current state.

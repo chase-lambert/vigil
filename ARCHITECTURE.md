@@ -409,7 +409,7 @@ Zig test failures produce verbose stack traces with internal std.testing frames:
 - Tracks `in_std_frame_context` state so context lines (source + pointer) are also hidden
 - Strips project root from paths, removes memory addresses (`0x...`)
 
-**Verbose mode** shows everything (full paths, all frames).
+**Full mode** shows everything (full paths, all frames).
 
 ### Project Detection
 

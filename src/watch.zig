@@ -76,9 +76,11 @@ pub const Watcher = struct {
     }
 
     /// Enable or disable watching.
+    /// Only snapshots on first activation (when last_check == 0).
+    /// On resume, skips snapshot so files changed while paused are detected.
     pub fn setActive(self: *Watcher, active: bool) void {
         self.active = active;
-        if (active) {
+        if (active and self.last_check == 0) {
             self.snapshot();
         }
     }
