@@ -413,6 +413,8 @@ pub const ViewState = struct {
     selected_item: u16,
     /// Whether we're in expanded (full) view
     expanded: bool,
+    /// Whether lines should wrap
+    wrap: bool,
     /// Search query
     search: [MAX_SEARCH_LEN]u8,
     search_len: u8,
@@ -430,6 +432,7 @@ pub const ViewState = struct {
             .scroll = 0,
             .selected_item = 0,
             .expanded = false,
+            .wrap = false,
             .search = undefined,
             .search_len = 0,
             .mode = .normal,

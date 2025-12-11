@@ -264,16 +264,27 @@ fn charToStaticGrapheme(c: u8) []const u8 {
 
 /// Render a content line using writeCell character-by-character.
 /// This avoids the grapheme lifetime issue with win.print() on runtime strings.
-fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, row: u16) void {
+/// When wrap=true, continues to next row when width exceeded. Returns rows used.
+fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, start_row: u16, wrap: bool) u16 {
     var col: u16 = 0;
+    var row: u16 = start_row;
+    const max_row = win.height;
+
     for (text) |byte| {
-        if (col >= win.width) break;
+        if (col >= win.width) {
+            if (!wrap) break;
+            // Wrap to next line
+            col = 0;
+            row += 1;
+            if (row >= max_row) break;
+        }
         win.writeCell(col, row, .{
             .char = .{ .grapheme = charToStaticGrapheme(byte), .width = 1 },
             .style = style,
         });
         col += 1;
     }
+    return row - start_row + 1; // Number of rows used (at least 1)
 }
 
 /// Clean up a stack trace location line for terse display.
@@ -478,7 +489,7 @@ pub fn render(vx: *vaxis.Vaxis, ctx: RenderContext) void {
 
     renderHeader(header_win, ctx);
     renderContent(content_win, ctx);
-    renderFooter(footer_win, ctx.report, ctx.view);
+    renderFooter(footer_win, ctx.report, ctx.view, ctx.watching);
 }
 
 /// Render the header bar: project | job | status | mode | watch
@@ -620,8 +631,8 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
             text = cleanStackTraceLine(text, ctx.project_root);
         }
 
-        printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row);
-        row += 1;
+        const rows_used = printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row, ctx.view.wrap);
+        row += rows_used;
 
         // Visual separation after test summary
         if (line.kind == .test_summary and row < content_height) {
@@ -635,18 +646,26 @@ fn renderFooter(
     win: vaxis.Window,
     report: *const types.Report,
     view: *const types.ViewState,
+    watching: bool,
 ) void {
     const visible = report.getVisibleCount(view.expanded);
     const total = report.lines_len;
 
-    // Help text based on mode
+    // Dynamic hints based on current state
+    const wrap_hint: []const u8 = if (view.wrap) "w to not wrap" else "w to wrap";
+    const pause_hint: []const u8 = if (watching) "p to pause" else "p to resume";
+
     const help = switch (view.mode) {
-        .normal => "? for help, q to quit",
+        .normal => "h for help",
         .searching => "enter to confirm, esc to cancel",
         .help => "q to close",
     };
 
-    _ = printFmt(win, "{s}  |  {d}/{d}", .{ help, visible, total }, .{ .fg = colors.muted }, .{});
+    if (view.mode == .normal) {
+        _ = printFmt(win, "Hit / to search, {s}, {s}, {s}, q to quit  |  {d}/{d}", .{ help, wrap_hint, pause_hint, visible, total }, .{ .fg = colors.muted }, .{});
+    } else {
+        _ = printFmt(win, "{s}  |  {d}/{d}", .{ help, visible, total }, .{ .fg = colors.muted }, .{});
+    }
 }
 
 /// Get the display color for a line type.
@@ -701,6 +720,7 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
         "  g/G        Jump to top / bottom",
         "",
         "  Space      Toggle terse / full",
+        "  w          Toggle line wrap",
         "",
         "  b/t/r      Switch to build / test / run",
         "  p          Pause / resume watching",

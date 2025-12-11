@@ -13,6 +13,7 @@ pub const Action = union(enum) {
     quit,
     toggle_expanded,
     toggle_watch,
+    toggle_wrap,
     scroll_up,
     scroll_down,
     scroll_page_up,
@@ -47,6 +48,11 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
     // Toggle watching (pause/resume)
     if (key.matches('p', .{})) {
         return .toggle_watch;
+    }
+
+    // Toggle line wrap
+    if (key.matches('w', .{})) {
+        return .toggle_wrap;
     }
 
     // Scrolling

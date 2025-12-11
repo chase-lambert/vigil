@@ -316,6 +316,10 @@ pub const App = struct {
                 self.watcher.toggle();
                 self.needs_redraw = true;
             },
+            .toggle_wrap => {
+                self.view.wrap = !self.view.wrap;
+                self.needs_redraw = true;
+            },
             .scroll_up => self.scrollUp(1),
             .scroll_down => self.scrollDown(1),
             .scroll_page_up => self.scrollUp(20),
