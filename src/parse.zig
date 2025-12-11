@@ -1,7 +1,7 @@
 //! Output parsing and line classification.
 //!
 //! Parses Zig compiler output to extract structured information
-//! about errors, warnings, and other diagnostics.
+//! about errors and other diagnostics.
 //!
 //! Design: No regex, hand-written matchers for speed and clarity.
 
@@ -21,7 +21,7 @@ const TestFailure = types.TestFailure;
 /// Parser for build output. Maintains state across lines to track
 /// which "item" (error group) each line belongs to.
 pub const Parser = struct {
-    /// Current item index (incremented when we see an error/warning header)
+    /// Current item index (incremented when we see an error header)
     current_item: u16,
     /// Whether we're inside a "referenced by:" block
     in_reference_block: bool,
@@ -82,7 +82,6 @@ pub const Parser = struct {
 
         // Try to parse location for relevant line types
         if (line.kind == .error_location or
-            line.kind == .warning_location or
             line.kind == .note_location)
         {
             line.location = parseLocation(raw);
@@ -91,7 +90,6 @@ pub const Parser = struct {
         // Update stats
         switch (line.kind) {
             .error_location => report.stats.errors += 1,
-            .warning_location => report.stats.warnings += 1,
             .note_location => report.stats.notes += 1,
             .test_pass => report.stats.tests_passed += 1,
             .test_fail, .test_fail_header => report.stats.tests_failed += 1,
@@ -161,7 +159,6 @@ pub const Parser = struct {
             // Check if it's actually context (not another location line or keyword)
             if (std.mem.indexOf(u8, line, ": note:") == null and
                 std.mem.indexOf(u8, line, ": error:") == null and
-                std.mem.indexOf(u8, line, ": warning:") == null and
                 !std.mem.startsWith(u8, trimmed, "referenced by:"))
             {
                 // If this context belongs to a std library frame, hide it
@@ -198,7 +195,7 @@ pub const Parser = struct {
             }
         }
 
-        // Error/warning/note with location pattern: "path:line:col: type:"
+        // Error/note with location pattern: "path:line:col: type:"
         // Check for std library frames (noise in test output) - hide in terse mode
         const is_std_frame = std.mem.indexOf(u8, line, "/lib/std/") != null or
             std.mem.indexOf(u8, line, "lib/std/") != null;
@@ -206,10 +203,6 @@ pub const Parser = struct {
         if (std.mem.indexOf(u8, line, ": error:")) |_| {
             self.in_std_frame_context = is_std_frame;
             return if (is_std_frame) .test_internal_frame else .error_location;
-        }
-        if (std.mem.indexOf(u8, line, ": warning:")) |_| {
-            self.in_std_frame_context = is_std_frame;
-            return if (is_std_frame) .test_internal_frame else .warning_location;
         }
         if (std.mem.indexOf(u8, line, ": note:")) |_| {
             self.in_std_frame_context = is_std_frame;
@@ -281,8 +274,8 @@ pub const Parser = struct {
 /// Parse a file:line:col location from a line.
 /// Expects format like "src/main.zig:42:13: error: message"
 pub fn parseLocation(line: []const u8) ?Location {
-    // Find ": error:", ": warning:", or ": note:"
-    const markers = [_][]const u8{ ": error:", ": warning:", ": note:" };
+    // Find ": error:" or ": note:"
+    const markers = [_][]const u8{ ": error:", ": note:" };
 
     var marker_pos: ?usize = null;
     for (markers) |marker| {
@@ -538,7 +531,7 @@ test "parseLocation basic" {
 
 test "parseLocation with path containing colon" {
     // Windows-style paths or other edge cases
-    const loc = parseLocation("C:/Users/test/main.zig:10:5: warning: unused");
+    const loc = parseLocation("C:/Users/test/main.zig:10:5: error: unused");
     // This should handle the path correctly
     if (loc) |l| {
         try std.testing.expectEqual(@as(u32, 10), l.line);
@@ -651,7 +644,7 @@ test "extractExpectedActual from header" {
 test "parseLocation - invalid formats return null" {
     // No colons at all
     try std.testing.expect(parseLocation("no colons here") == null);
-    // Missing error/warning/note marker
+    // Missing error/note marker
     try std.testing.expect(parseLocation("src/main.zig:42:13") == null);
     // Only one colon before marker
     try std.testing.expect(parseLocation("file:42: error: msg") == null);

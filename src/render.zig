@@ -33,6 +33,7 @@ pub const RenderContext = struct {
 pub const VisibleLineIterator = struct {
     report: *const types.Report,
     expanded: bool,
+    show_all: bool,
     scroll: u16,
 
     // Internal state
@@ -50,6 +51,7 @@ pub const VisibleLineIterator = struct {
         return .{
             .report = report,
             .expanded = view.expanded,
+            .show_all = view.show_all_output,
             .scroll = view.scroll,
             .line_index = 0,
             .visible_count = 0,
@@ -65,7 +67,8 @@ pub const VisibleLineIterator = struct {
             self.line_index += 1;
 
             const line = &lines[idx];
-            const should_show = self.expanded or line.kind.shownInTerse();
+            // In show_all mode (run job), show everything. Otherwise filter by terse/expanded.
+            const should_show = self.show_all or self.expanded or line.kind.shownInTerse();
             if (!should_show) continue;
 
             // Collapse consecutive blanks in terse mode
@@ -97,8 +100,6 @@ pub const VisibleLineIterator = struct {
 pub const colors = struct {
     pub const error_fg = vaxis.Color{ .rgb = .{ 0xff, 0x66, 0x66 } };
     pub const error_bg = vaxis.Color{ .rgb = .{ 0x44, 0x22, 0x22 } };
-    pub const warning_fg = vaxis.Color{ .rgb = .{ 0xff, 0xcc, 0x66 } };
-    pub const warning_bg = vaxis.Color{ .rgb = .{ 0x44, 0x33, 0x22 } };
     pub const note_fg = vaxis.Color{ .rgb = .{ 0x66, 0xcc, 0xff } };
     pub const success_fg = vaxis.Color{ .rgb = .{ 0x66, 0xff, 0x66 } };
     pub const success_bg = vaxis.Color{ .rgb = .{ 0x22, 0x44, 0x22 } };
@@ -506,7 +507,6 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     const job_bg = vaxis.Color{ .rgb = .{ 0x44, 0x88, 0x88 } }; // Teal
     const status_ok_bg = vaxis.Color{ .rgb = .{ 0x66, 0xcc, 0x66 } }; // Green
     const status_fail_bg = vaxis.Color{ .rgb = .{ 0xcc, 0x66, 0x66 } }; // Red
-    const status_warn_bg = vaxis.Color{ .rgb = .{ 0xcc, 0xaa, 0x55 } }; // Orange
     const mode_terse_bg = vaxis.Color{ .rgb = .{ 0x55, 0x55, 0x66 } }; // Muted gray-blue
     const mode_full_bg = vaxis.Color{ .rgb = .{ 0x66, 0x55, 0x66 } }; // Muted purple
     const watch_on_bg = vaxis.Color{ .rgb = .{ 0x55, 0x77, 0x55 } }; // Muted green
@@ -542,8 +542,6 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     // 3. Status badge
     const status_bg = if (report.stats.tests_failed > 0 or report.stats.errors > 0)
         status_fail_bg
-    else if (report.stats.warnings > 0)
-        status_warn_bg
     else
         status_ok_bg;
 
@@ -558,11 +556,6 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
         writeNumber(win, report.stats.errors, &col, status_bg, white);
         const error_text: []const u8 = if (report.stats.errors == 1) " error " else " errors ";
         for (error_text) |c| writeChar(win, c, &col, status_bg, white);
-    } else if (report.stats.warnings > 0) {
-        writeChar(win, ' ', &col, status_bg, white);
-        writeNumber(win, report.stats.warnings, &col, status_bg, white);
-        const warn_text: []const u8 = if (report.stats.warnings == 1) " warn " else " warns ";
-        for (warn_text) |c| writeChar(win, c, &col, status_bg, white);
     } else if (report.stats.tests_passed > 0) {
         for (" pass! ") |c| writeChar(win, c, &col, status_bg, white);
     } else {
@@ -623,7 +616,7 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
 
         // Normal line rendering
         var text = line.getText(text_buf);
-        const fg_color = getLineColor(line.kind, ctx.view.expanded);
+        const fg_color = getLineColor(line.kind, ctx.view.expanded, ctx.view.show_all_output);
 
         // In terse mode, clean up stack trace paths
         if (!ctx.view.expanded and line.kind == .note_location) {
@@ -668,18 +661,18 @@ fn renderFooter(
 }
 
 /// Get the display color for a line type.
-fn getLineColor(kind: types.LineKind, expanded: bool) vaxis.Color {
+fn getLineColor(kind: types.LineKind, expanded: bool, show_all: bool) vaxis.Color {
     return switch (kind) {
         .error_location => colors.error_fg,
-        .warning_location => colors.warning_fg,
         .note_location => colors.note_fg,
         .test_pass => colors.success_fg,
         .test_fail, .test_fail_header => colors.error_fg,
-        .test_expected_value => colors.muted, // Will be rendered with special highlighting
+        .test_expected_value => colors.muted,
         .test_summary => colors.muted,
         .source_line, .pointer_line, .blank => .default,
-        // In expanded mode, show filtered content in muted color
-        else => if (expanded) colors.muted else .default,
+        // In show_all mode (run job), use default color so output is readable.
+        // In expanded mode (full view), use muted color for filtered content.
+        else => if (show_all) .default else if (expanded) colors.muted else .default,
     };
 }
 

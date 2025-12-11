@@ -6,7 +6,7 @@ Shows you the errors that matter, hides the noise.
 
 ## Features
 
-- **Terse Mode**: Filters build noise, shows only errors, warnings, and context
+- **Terse Mode**: Filters build noise, shows only errors and context
 - **Full Mode**: Toggle to see complete output when needed
 - **File Watching**: Auto-rebuild on source changes (pause with `p`)
 - **Multiple Jobs**: Switch between build (`b`), test (`t`), run (`r`)
@@ -44,7 +44,7 @@ vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 
 ## What Gets Filtered
 
-**Shown in terse mode**: Errors, warnings, notes, source snippets, pointer lines
+**Shown in terse mode**: Errors, notes, source snippets, pointer lines
 
 **Hidden**: Build tree (`└─ compile...`), `referenced by:` traces, command dumps, build summaries
 
@@ -53,7 +53,7 @@ vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 ### Implemented
 - [x] Basic TUI with libvaxis
 - [x] Run zig build, capture output
-- [x] Line classification (error/warning/note/noise)
+- [x] Line classification (error/note/noise)
 - [x] Terse/full view toggle
 - [x] Scrolling (`j`/`k`, `g`/`G`)
 - [x] Line wrap toggle (`w`)

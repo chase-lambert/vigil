@@ -2,7 +2,7 @@
 
 ## What is Vigil?
 
-A **build watcher for Zig** — like Bacon for Rust. It runs `zig build`, parses output, displays errors/warnings in a clean TUI, and auto-rebuilds on file changes.
+A **build watcher for Zig** — like Bacon for Rust. It runs `zig build`, parses output, displays errors in a clean TUI, and auto-rebuilds on file changes.
 
 ## Design Philosophy
 
@@ -112,7 +112,6 @@ pub const MAX_TEST_FAILURES: usize = 64;     // Max test failures tracked
 pub const LineKind = enum(u8) {
     // Shown in terse mode:
     error_location,      // "src/main.zig:42:13: error: ..."
-    warning_location,
     note_location,
     source_line,         // "    const x = 5;"
     pointer_line,        // "    ~~~^~~~"
@@ -139,7 +138,7 @@ pub const LineKind = enum(u8) {
 - `Report` — Collection of lines + stats + shared 512KB text buffer
 - `ViewState` — UI state (scroll, mode, selected item)
 - `WatchConfig` — Paths to watch, debounce settings
-- `Stats` — Error/warning/test counts
+- `Stats` — Error/test counts
 
 **Comptime assertions validate invariants:**
 ```zig

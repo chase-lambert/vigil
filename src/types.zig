@@ -33,7 +33,6 @@ pub const MAX_TEST_FAILURES: usize = 64;
 pub const LineKind = enum(u8) {
     // === Kept in terse mode ===
     error_location, // "path:line:col: error: message"
-    warning_location, // "path:line:col: warning: message"
     note_location, // "path:line:col: note: message"
     source_line, // indented source code snippet
     pointer_line, // "    ~~~^~~~" error indicator
@@ -57,7 +56,6 @@ pub const LineKind = enum(u8) {
     pub fn shownInTerse(self: LineKind) bool {
         return switch (self) {
             .error_location,
-            .warning_location,
             .note_location,
             .source_line,
             .pointer_line,
@@ -83,7 +81,7 @@ pub const LineKind = enum(u8) {
     /// Returns true if this is an "item header" (starts a new logical item).
     pub fn isItemStart(self: LineKind) bool {
         return switch (self) {
-            .error_location, .warning_location, .test_fail, .test_fail_header => true,
+            .error_location, .test_fail, .test_fail_header => true,
             else => false,
         };
     }
@@ -212,7 +210,6 @@ pub const Line = struct {
 /// Statistics about the build output.
 pub const Stats = struct {
     errors: u16 = 0,
-    warnings: u16 = 0,
     notes: u16 = 0,
     tests_passed: u16 = 0,
     tests_failed: u16 = 0,
@@ -225,12 +222,8 @@ pub const Stats = struct {
         return self.errors > 0 or self.tests_failed > 0;
     }
 
-    pub fn hasWarnings(self: Stats) bool {
-        return self.warnings > 0;
-    }
-
     pub fn isSuccess(self: Stats) bool {
-        return !self.hasErrors() and !self.hasWarnings();
+        return !self.hasErrors();
     }
 };
 
@@ -391,6 +384,8 @@ pub const ViewState = struct {
     search_len: u8,
     /// Current mode
     mode: Mode,
+    /// Show all output (for run mode where we want to see program output)
+    show_all_output: bool,
 
     pub const Mode = enum {
         normal,
@@ -406,6 +401,7 @@ pub const ViewState = struct {
             .search = undefined,
             .search_len = 0,
             .mode = .normal,
+            .show_all_output = false,
         };
     }
 
@@ -493,7 +489,6 @@ comptime {
 
 test "LineKind.shownInTerse" {
     try std.testing.expect(LineKind.error_location.shownInTerse());
-    try std.testing.expect(LineKind.warning_location.shownInTerse());
     try std.testing.expect(LineKind.note_location.shownInTerse());
     try std.testing.expect(!LineKind.build_tree.shownInTerse());
     try std.testing.expect(!LineKind.command_dump.shownInTerse());
