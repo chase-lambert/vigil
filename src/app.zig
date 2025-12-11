@@ -329,8 +329,7 @@ pub const App = struct {
                 self.needs_redraw = true;
             },
             .scroll_bottom => {
-                const visible = self.report().getVisibleCount(self.view.expanded);
-                self.view.scroll = visible;
+                self.view.scroll = self.getMaxScroll();
                 self.needs_redraw = true;
             },
             .start_search => {
@@ -373,9 +372,25 @@ pub const App = struct {
 
     /// Scroll down by n lines.
     fn scrollDown(self: *App, n: u16) void {
-        const max_scroll = self.report().getVisibleCount(self.view.expanded);
+        const max_scroll = self.getMaxScroll();
         self.view.scroll = @min(self.view.scroll + n, max_scroll);
         self.needs_redraw = true;
+    }
+
+    /// Get the content area height (viewport).
+    /// Layout: header (1) + gap (1) + content + footer (1)
+    fn getContentHeight(self: *const App) u16 {
+        return self.vx.screen.height -| 3;
+    }
+
+    /// Get the maximum scroll position.
+    /// This ensures the last screenful of content is always visible,
+    /// with a few lines of padding at the bottom for breathing room.
+    fn getMaxScroll(self: *const App) u16 {
+        const visible = self.report().getVisibleCount(self.view.expanded);
+        const viewport = self.getContentHeight();
+        const padding: u16 = 3; // Lines of empty space at bottom
+        return (visible + padding) -| viewport;
     }
 
     /// Switch to a different job (build=0, test=1).
