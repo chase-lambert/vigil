@@ -23,9 +23,10 @@ cp zig-out/bin/vigil ~/.local/bin/
 ## Usage
 
 ```bash
-vigil           # Default: zig build
-vigil test      # Run tests
-vigil -- -Doptimize=ReleaseFast  # Pass args to zig
+vigil                           # Default: zig build
+vigil test                      # Run tests
+vigil -Doptimize=ReleaseFast    # Pass options to zig build
+vigil test -Dfilter=foo         # Run filtered tests
 ```
 
 ## Keybindings

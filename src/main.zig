@@ -88,7 +88,6 @@ fn printHelp() void {
         \\COMMANDS:
         \\    (none)     Run 'zig build' (default)
         \\    test       Run 'zig build test'
-        \\    run        Run 'zig build run'
         \\
         \\OPTIONS:
         \\    -h, --help     Show this help
@@ -99,15 +98,15 @@ fn printHelp() void {
         \\EXAMPLES:
         \\    vigil                      # Watch and run 'zig build'
         \\    vigil test                 # Watch and run 'zig build test'
-        \\    vigil -- -Doptimize=ReleaseFast
-        \\    vigil test -- -Dfilter=foo
+        \\    vigil -Doptimize=ReleaseFast
+        \\    vigil test -Dfilter=foo
         \\
         \\KEYBINDINGS:
         \\    j/k     Scroll down/up
         \\    g/G     Jump to top/bottom
         \\    Space   Toggle terse/full view
         \\    w       Toggle line wrap
-        \\    b/t/r   Switch to build/test/run job
+        \\    b/t     Switch to build/test job
         \\    p       Pause/resume watching
         \\    q       Quit
         \\    ?       Show help
