@@ -8,9 +8,8 @@ Shows you the errors that matter, hides the noise.
 
 - **Terse Mode**: Filters build noise, shows only errors, warnings, and context
 - **Full Mode**: Toggle to see complete output when needed
-- **File Watching**: Auto-rebuild on source changes
-- **Multiple Jobs**: Switch between build (`b`), test (`t`), run (`x`)
-- **Navigation**: Jump between errors, open in `$EDITOR`
+- **File Watching**: Auto-rebuild on source changes (pause with `p`)
+- **Multiple Jobs**: Switch between build (`b`), test (`t`), run (`r`)
 
 ## Installation
 
@@ -35,13 +34,11 @@ vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 | Key | Action |
 |-----|--------|
 | `j`/`k` | Scroll down/up |
-| `g`/`G` | Top/bottom |
-| `n`/`N` | Next/prev error |
-| `Enter` | Open in `$EDITOR` |
-| `Space` | Toggle terse/full |
-| `b`/`t`/`x` | Build/test/run |
-| `r` | Rebuild |
-| `w` | Toggle watching |
+| `g`/`G` | Jump to top/bottom |
+| `Space` | Toggle terse/full view |
+| `w` | Toggle line wrap |
+| `b`/`t`/`r` | Switch to build/test/run job |
+| `p` | Pause/resume watching |
 | `?` | Help |
 | `q` | Quit |
 
@@ -58,12 +55,11 @@ vigil -- -Doptimize=ReleaseFast  # Pass args to zig
 - [x] Run zig build, capture output
 - [x] Line classification (error/warning/note/noise)
 - [x] Terse/full view toggle
-- [x] Scrolling and error navigation (`n`/`N`)
-- [x] Manual rebuild (`r`)
-- [x] File watching (polling-based)
-- [x] Open in editor (`Enter`)
+- [x] Scrolling (`j`/`k`, `g`/`G`)
+- [x] Line wrap toggle (`w`)
+- [x] File watching with pause/resume (`p`)
 - [x] Help overlay (`?`)
-- [x] Job switching (`b`/`t`/`x` for build/test/run)
+- [x] Job switching (`b`/`t`/`r` for build/test/run)
 - [x] Test output parsing (Zig 0.15 format)
 - [x] Bacon-style test failure display (`expected:`/`found:` values)
 - [x] Project name detection from `build.zig.zon`
@@ -80,10 +76,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for design philosophy (TigerStyle, data-o
 ```
 src/
 ├── main.zig      # Entry point, arg parsing
-├── app.zig       # Application state, main loop
+├── app.zig       # Application state, main loop, command execution
 ├── types.zig     # Core data structures
 ├── parse.zig     # Output classification
-├── process.zig   # Command execution
 ├── watch.zig     # File system watching
 ├── render.zig    # TUI rendering
 └── input.zig     # Keyboard handling

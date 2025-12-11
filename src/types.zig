@@ -89,12 +89,6 @@ pub const LineKind = enum(u8) {
     }
 };
 
-/// Origin of a line (which stream it came from).
-pub const Stream = enum(u1) {
-    stdout,
-    stderr,
-};
-
 // =============================================================================
 // Location (parsed file:line:col reference)
 // =============================================================================
@@ -186,9 +180,7 @@ pub const Line = struct {
     text_len: u16,
     /// Classification of this line
     kind: LineKind,
-    /// Which stream this came from
-    stream: Stream,
-    /// Which item this line belongs to (for navigation)
+    /// Which item this line belongs to (for grouping)
     item_index: u16,
     /// Parsed location if applicable
     location: ?Location,
@@ -207,7 +199,6 @@ pub const Line = struct {
             .text_offset = 0,
             .text_len = 0,
             .kind = .other,
-            .stream = .stderr,
             .item_index = 0,
             .location = null,
         };
@@ -257,9 +248,6 @@ pub const Report = struct {
     /// All parsed lines (fixed-size buffer)
     lines_buf: [MAX_LINES]Line,
     lines_len: u16, // Max 8192 lines
-    /// Item start indices for navigation between errors (fixed-size buffer)
-    item_starts_buf: [MAX_ITEMS]u16,
-    item_starts_len: u16, // Max 1024 items
     /// Statistics
     stats: Stats,
     /// Exit code from the build command
@@ -278,8 +266,6 @@ pub const Report = struct {
             .text_len = 0,
             .lines_buf = undefined,
             .lines_len = 0,
-            .item_starts_buf = undefined,
-            .item_starts_len = 0,
             .stats = .{},
             .exit_code = null,
             .was_killed = false,
@@ -292,7 +278,6 @@ pub const Report = struct {
     pub fn clear(self: *Report) void {
         self.text_len = 0;
         self.lines_len = 0;
-        self.item_starts_len = 0;
         self.stats.reset();
         self.exit_code = null;
         self.was_killed = false;
@@ -339,18 +324,6 @@ pub const Report = struct {
         assert(line.text_offset <= self.text_len);
         self.lines_buf[self.lines_len] = line;
         self.lines_len += 1;
-    }
-
-    /// Get the slice of item start indices
-    pub fn itemStarts(self: *const Report) []const u16 {
-        return self.item_starts_buf[0..self.item_starts_len];
-    }
-
-    /// Append an item start index
-    pub fn appendItemStart(self: *Report, idx: u16) !void {
-        if (self.item_starts_len >= MAX_ITEMS) return error.TooManyItems;
-        self.item_starts_buf[self.item_starts_len] = idx;
-        self.item_starts_len += 1;
     }
 
     /// Get the slice of test failures
@@ -409,8 +382,6 @@ pub const Report = struct {
 pub const ViewState = struct {
     /// Scroll position (line offset)
     scroll: u16, // Max 8192 lines
-    /// Currently selected item index (for navigation)
-    selected_item: u16,
     /// Whether we're in expanded (full) view
     expanded: bool,
     /// Whether lines should wrap
@@ -430,7 +401,6 @@ pub const ViewState = struct {
     pub fn init() ViewState {
         return .{
             .scroll = 0,
-            .selected_item = 0,
             .expanded = false,
             .wrap = false,
             .search = undefined,
@@ -441,7 +411,6 @@ pub const ViewState = struct {
 
     pub fn reset(self: *ViewState) void {
         self.scroll = 0;
-        self.selected_item = 0;
         // Keep expanded state across rebuilds
     }
 
@@ -515,7 +484,6 @@ comptime {
     // With shared text buffer approach: ~700KB total
     // - text_buf: 512KB
     // - lines_buf: 8192 * ~24 = ~196KB
-    // - item_starts_buf: 1024 * 2 = 2KB
     assert(@sizeOf(Report) < 1024 * 1024); // < 1MB
 }
 
@@ -543,5 +511,4 @@ test "Stats" {
 test "Report.init" {
     const report = Report.init();
     try std.testing.expectEqual(@as(u16, 0), report.lines_len);
-    try std.testing.expectEqual(@as(u16, 0), report.item_starts_len);
 }

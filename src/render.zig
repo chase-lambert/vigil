@@ -359,24 +359,23 @@ fn renderTestFailureLine(
         }
     }
 
-    // Render badge: " N " with colored background
+    // Render badge: " N " with colored background (N can be multi-digit)
     const badge_bg = colors.fail_badge_bg;
     const white = vaxis.Color{ .rgb = .{ 0xff, 0xff, 0xff } };
 
-    win.writeCell(col, row, .{
+    // Create 1-row child window so writeNumber's row 0 = our actual row
+    const row_win = win.child(.{ .y_off = row, .height = 1 });
+
+    row_win.writeCell(col, 0, .{
         .char = .{ .grapheme = " ", .width = 1 },
         .style = .{ .bg = badge_bg, .fg = white, .bold = true },
     });
     col += 1;
 
-    // Write failure number
-    win.writeCell(col, row, .{
-        .char = .{ .grapheme = charToStaticGrapheme('0' + failure_num), .width = 1 },
-        .style = .{ .bg = badge_bg, .fg = white, .bold = true },
-    });
-    col += 1;
+    // Write failure number (supports multi-digit, e.g. [12] not just [1]-[9])
+    writeNumber(row_win, failure_num, &col, badge_bg, white);
 
-    win.writeCell(col, row, .{
+    row_win.writeCell(col, 0, .{
         .char = .{ .grapheme = " ", .width = 1 },
         .style = .{ .bg = badge_bg, .fg = white, .bold = true },
     });
@@ -601,10 +600,7 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
         if (row >= content_height) break;
 
         const line = item.line;
-
-        // Selection highlighting
-        const is_selected = line.item_index == ctx.view.selected_item and line.kind.isItemStart();
-        const bg_color: vaxis.Color = if (is_selected) colors.selected_bg else .default;
+        const bg_color: vaxis.Color = .default;
 
         // Special rendering for test failure headers
         if (line.kind == .test_fail_header) {
@@ -749,8 +745,7 @@ test "VisibleLineIterator - basic iteration" {
         .text_offset = text1.offset,
         .text_len = text1.len,
         .kind = .error_location,
-        .stream = .stderr,
-        .item_index = 0,
+                .item_index = 0,
         .location = null,
     });
 
@@ -759,8 +754,7 @@ test "VisibleLineIterator - basic iteration" {
         .text_offset = text2.offset,
         .text_len = text2.len,
         .kind = .source_line,
-        .stream = .stderr,
-        .item_index = 0,
+                .item_index = 0,
         .location = null,
     });
 
@@ -789,22 +783,20 @@ test "VisibleLineIterator - blank collapsing in terse mode" {
         .text_offset = text1.offset,
         .text_len = text1.len,
         .kind = .error_location,
-        .stream = .stderr,
-        .item_index = 0,
+                .item_index = 0,
         .location = null,
     });
 
     // Two consecutive blanks
-    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .stream = .stderr, .item_index = 0, .location = null });
-    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .stream = .stderr, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .item_index = 0, .location = null });
 
     const text2 = try report.appendText("source line");
     try report.appendLine(.{
         .text_offset = text2.offset,
         .text_len = text2.len,
         .kind = .source_line,
-        .stream = .stderr,
-        .item_index = 0,
+                .item_index = 0,
         .location = null,
     });
 
@@ -831,8 +823,7 @@ test "VisibleLineIterator - scroll handling" {
             .text_offset = text.offset,
             .text_len = text.len,
             .kind = .error_location,
-            .stream = .stderr,
-            .item_index = 0,
+                        .item_index = 0,
             .location = null,
         });
     }

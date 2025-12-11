@@ -305,7 +305,7 @@ pub const App = struct {
 pub fn handleNormalMode(key: vaxis.Key) Action {
     if (key.matches('q', .{})) return .quit;
     if (key.matches('j', .{})) return .scroll_down;
-    if (key.matches('n', .{})) return .next_error;
+    if (key.matches('b', .{})) return .{ .select_job = 0 };  // build
     // ...
     return .none;
 }
@@ -318,18 +318,18 @@ The App's main loop interprets Actions and performs actual mutations.
 ## Data Flow
 
 ```
-User types 'r' (rebuild)
+User types 'b' (switch to build job)
      │
      ▼
-input.handleKey() → Action.rebuild
+input.handleKey() → Action.select_job(0)
      │
      ▼
-app.handleKey() matches .rebuild
+app.handleKey() matches .select_job
      │
      ▼
-app.runBuild()
+app.switchJob() → app.runBuild()
      │
-     ├─→ process.runBuild() spawns "zig build", waits, returns output
+     ├─→ runBuildCmd() spawns "zig build", waits, returns output
      │
      ▼
 parse.parseOutput(output, &global_report)
@@ -425,9 +425,8 @@ Parsed at startup in `app.detectProject()`. Falls back to directory name if no b
 ## Known Limitations
 
 1. **Search mode incomplete** — `/` enters search mode but filtering not yet implemented
-2. **Editor spawning** — Opens `$EDITOR` but should exit alt screen first
-3. **File watcher is polling-only** — Could add inotify/FSEvents for efficiency
-4. **Tests only in types.zig and parse.zig** — Other modules lack unit tests
+2. **File watcher is polling-only** — Could add inotify/FSEvents for efficiency
+3. **Tests only in types.zig and parse.zig** — Other modules lack unit tests
 
 ---
 

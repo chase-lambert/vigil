@@ -12,7 +12,6 @@ const Line = types.Line;
 const LineKind = types.LineKind;
 const Location = types.Location;
 const Report = types.Report;
-const Stream = types.Stream;
 const TestFailure = types.TestFailure;
 
 // =============================================================================
@@ -59,9 +58,12 @@ pub const Parser = struct {
     /// Parse a single line of output and add it to the report.
     /// Text is stored in the report's shared buffer (data-oriented design).
     /// Returns error if report is full.
-    pub fn parseLine(self: *Parser, raw: []const u8, stream: Stream, report: *Report) !void {
+    ///
+    /// NOTE: Must be called sequentially on consecutive lines. Parser maintains
+    /// internal state (note_context_remaining, in_reference_block, etc.) that
+    /// depends on seeing lines in order.
+    pub fn parseLine(self: *Parser, raw: []const u8, report: *Report) !void {
         var line = Line.init();
-        line.stream = stream;
         line.item_index = self.current_item;
 
         // Store text in the shared buffer
@@ -72,13 +74,10 @@ pub const Parser = struct {
         // Classify the line
         line.kind = self.classify(raw);
 
-        // Update item index and track item starts for navigation
+        // Track which logical item this line belongs to (for grouping)
         if (line.kind.isItemStart()) {
             self.current_item +|= 1;
             line.item_index = self.current_item;
-            // Note: if we exceed MAX_ITEMS, navigation won't work for later items
-            // but lines are still added to the report and visible. This is acceptable.
-            report.appendItemStart(@intCast(report.lines_len)) catch {};
         }
 
         // Try to parse location for relevant line types
@@ -519,7 +518,7 @@ pub fn parseOutput(output: []const u8, report: *Report) void {
 
     while (line_iter.next()) |raw_line| {
         // parseLine now handles everything: text storage, stats, item tracking
-        parser.parseLine(raw_line, .stderr, report) catch break;
+        parser.parseLine(raw_line, report) catch break;
     }
 
     // Cache the terse line count for O(1) lookups
@@ -549,7 +548,7 @@ test "parseLocation with path containing colon" {
 test "classify error line" {
     var parser = Parser.init();
     var report = Report.init();
-    try parser.parseLine("src/main.zig:42:13: error: expected type 'u32'", .stderr, &report);
+    try parser.parseLine("src/main.zig:42:13: error: expected type 'u32'", &report);
     try std.testing.expectEqual(@as(u16, 1), report.lines_len);
     try std.testing.expectEqual(LineKind.error_location, report.lines()[0].kind);
 }
@@ -557,7 +556,7 @@ test "classify error line" {
 test "classify build tree" {
     var parser = Parser.init();
     var report = Report.init();
-    try parser.parseLine("└─ compile exe example Debug native", .stderr, &report);
+    try parser.parseLine("└─ compile exe example Debug native", &report);
     try std.testing.expectEqual(@as(u16, 1), report.lines_len);
     try std.testing.expectEqual(LineKind.build_tree, report.lines()[0].kind);
 }
@@ -565,7 +564,7 @@ test "classify build tree" {
 test "classify pointer line" {
     var parser = Parser.init();
     var report = Report.init();
-    try parser.parseLine("            ~~~~~~~~~~^~~~", .stderr, &report);
+    try parser.parseLine("            ~~~~~~~~~~^~~~", &report);
     try std.testing.expectEqual(@as(u16, 1), report.lines_len);
     try std.testing.expectEqual(LineKind.pointer_line, report.lines()[0].kind);
 }
@@ -681,15 +680,15 @@ test "classify - reference block state transitions" {
     var report = Report.init();
 
     // Start a reference block
-    try parser.parseLine("referenced by: foo", .stderr, &report);
+    try parser.parseLine("referenced by: foo", &report);
     try std.testing.expect(parser.in_reference_block);
 
     // Indented reference line stays in block
-    try parser.parseLine("    src/main.zig:10:5", .stderr, &report);
+    try parser.parseLine("    src/main.zig:10:5", &report);
     try std.testing.expect(parser.in_reference_block);
 
     // Empty line ends reference block
-    try parser.parseLine("", .stderr, &report);
+    try parser.parseLine("", &report);
     try std.testing.expect(!parser.in_reference_block);
 }
 
@@ -698,15 +697,15 @@ test "classify - note context line tracking" {
     var report = Report.init();
 
     // A note line sets note_context_remaining to 2
-    try parser.parseLine("src/main.zig:10:5: note: see declaration", .stderr, &report);
+    try parser.parseLine("src/main.zig:10:5: note: see declaration", &report);
     try std.testing.expectEqual(@as(u8, 2), parser.note_context_remaining);
 
     // Next line (source) decrements to 1
-    try parser.parseLine("    const x = 5;", .stderr, &report);
+    try parser.parseLine("    const x = 5;", &report);
     try std.testing.expectEqual(@as(u8, 1), parser.note_context_remaining);
 
     // Pointer line decrements to 0
-    try parser.parseLine("    ~~~^~~~", .stderr, &report);
+    try parser.parseLine("    ~~~^~~~", &report);
     try std.testing.expectEqual(@as(u8, 0), parser.note_context_remaining);
 }
 

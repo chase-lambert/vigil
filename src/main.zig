@@ -104,11 +104,11 @@ fn printHelp() void {
         \\
         \\KEYBINDINGS:
         \\    j/k     Scroll down/up
-        \\    n/N     Next/previous error
+        \\    g/G     Jump to top/bottom
         \\    Space   Toggle terse/full view
-        \\    r       Manual rebuild
-        \\    w       Toggle file watching
-        \\    Enter   Open error location in $EDITOR
+        \\    w       Toggle line wrap
+        \\    b/t/r   Switch to build/test/run job
+        \\    p       Pause/resume watching
         \\    q       Quit
         \\    ?       Show help
         \\
