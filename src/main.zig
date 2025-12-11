@@ -15,7 +15,7 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 
-    // Build the zig build command (static array - TigerStyle: no heap for this)
+    // Build the zig build command (static array, no heap)
     var build_args_buf: [types.MAX_CMD_ARGS][]const u8 = undefined;
     var build_args_len: u8 = 0;
 

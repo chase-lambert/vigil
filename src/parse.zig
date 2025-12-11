@@ -99,7 +99,7 @@ pub const Parser = struct {
             else => {},
         }
 
-        // Extract test failure details for Bacon-style display
+        // Extract test failure details for structured display
         if (line.kind == .test_fail_header) {
             self.test_failure_count += 1;
             if (extractTestName(raw)) |name_info| {
@@ -646,7 +646,7 @@ test "extractExpectedActual from header" {
 }
 
 // =============================================================================
-// Edge Case Tests (TigerStyle: test the negative space)
+// Edge Case Tests
 // =============================================================================
 
 test "parseLocation - invalid formats return null" {

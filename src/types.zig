@@ -1,6 +1,6 @@
 //! Core data structures for Vigil.
 //!
-//! Design principles (TigerStyle):
+//! Design principles:
 //! - Fixed-size structures, no heap allocation after init
 //! - Explicit limits on everything
 //! - Pack related data for cache efficiency
@@ -10,7 +10,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 // =============================================================================
-// Limits (TigerStyle: put a limit on everything)
+// Limits
 // =============================================================================
 
 pub const MAX_LINES: usize = 8192;
@@ -43,7 +43,7 @@ pub const LineKind = enum(u8) {
     test_summary, // "+- run test N/M passed, K failed"
 
     // === Hidden in terse mode ===
-    test_pass, // "test_name... OK" - hidden for cleaner Bacon-style display
+    test_pass, // "test_name... OK" - hidden in terse mode
     test_internal_frame, // std.testing.zig frames - noise, hide in terse
     build_tree, // "└─ compile exe..."
     referenced_by, // "referenced by:" section
@@ -68,7 +68,7 @@ pub const LineKind = enum(u8) {
             .blank,
             => true,
 
-            .test_pass, // Hidden for cleaner Bacon-style display
+            .test_pass, // Hidden in terse mode
             .test_internal_frame, // std library stack frames
             .build_tree,
             .referenced_by,
@@ -117,7 +117,7 @@ pub const Location = struct {
 };
 
 // =============================================================================
-// Test Failure Details (for Bacon-style display)
+// Test Failure Details
 // =============================================================================
 
 /// Parsed test failure information for structured display.
@@ -134,7 +134,7 @@ pub const TestFailure = struct {
     /// Actual value (if extracted): offset into text_buf
     actual_offset: u32,
     actual_len: u16,
-    /// Failure number (1-indexed, for badge display like Bacon's [1], [2])
+    /// Failure number (1-indexed, for badge display [1], [2], etc.)
     failure_number: u8,
 
     pub fn init() TestFailure {
@@ -244,7 +244,7 @@ pub const Stats = struct {
 };
 
 /// A complete parsed build report.
-/// Uses static allocation - no heap after init (TigerStyle).
+/// Uses static allocation - no heap after init.
 ///
 /// Memory layout (data-oriented design):
 /// - text_buf: shared buffer for all line text (~512KB)
@@ -268,7 +268,7 @@ pub const Report = struct {
     was_killed: bool,
     /// Cached terse line count (avoids O(n) iteration on every scroll/render)
     cached_terse_count: u16, // Max 8192 lines
-    /// Test failure details for Bacon-style display
+    /// Test failure details for structured display
     test_failures_buf: [MAX_TEST_FAILURES]TestFailure,
     test_failures_len: u8, // Max 64 failures
 
@@ -500,7 +500,7 @@ pub const WatchConfig = struct {
 };
 
 // =============================================================================
-// Compile-time Assertions (TigerStyle: assert relationships)
+// Compile-time Assertions
 // =============================================================================
 
 comptime {

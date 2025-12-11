@@ -8,8 +8,7 @@
 //! - Rendering
 //!
 //! Design: The Report struct is large (~740KB) due to the shared text buffer.
-//! We use a global static variable for it (TigerStyle - like TigerBeetle does).
-//! This goes in .bss segment, not the heap - no runtime allocation.
+//! We use a global static variable for it - goes in .bss segment, no heap allocation.
 
 const std = @import("std");
 const vaxis = @import("vaxis");
@@ -28,8 +27,7 @@ pub const Event = union(enum) {
     focus_out,
 };
 
-/// Global static report buffer (TigerStyle: static allocation, goes in .bss)
-/// This avoids heap allocation for the large text buffer.
+/// Global static report buffer - avoids heap allocation for the large text buffer.
 var global_report: types.Report = types.Report.init();
 
 /// Main application state.
@@ -42,7 +40,7 @@ pub const App = struct {
     view: types.ViewState,
     watcher: watch_mod.Watcher,
 
-    // Build configuration (static allocation - TigerStyle)
+    // Build configuration (static allocation)
     build_args_buf: [types.MAX_CMD_ARGS][]const u8,
     build_args_len: u8,
     current_job_name: [32]u8,
@@ -108,7 +106,7 @@ pub const App = struct {
         self.tty.deinit();
     }
 
-    /// Get the global report (TigerStyle: single instance).
+    /// Get the global report.
     pub fn report(_: *const App) *types.Report {
         return &global_report;
     }
@@ -193,7 +191,7 @@ pub const App = struct {
         }
     }
 
-    /// Set build arguments (static buffer - TigerStyle).
+    /// Set build arguments.
     pub fn setBuildArgs(self: *App, args: []const []const u8) !void {
         if (args.len > types.MAX_CMD_ARGS) return error.TooManyArgs;
         for (args, 0..) |arg, i| {

@@ -89,7 +89,7 @@ pub const Watcher = struct {
     }
 };
 
-/// Maximum depth for directory watching (TigerStyle: explicit bound)
+/// Maximum depth for directory watching
 const MAX_WATCH_DEPTH: usize = 8;
 
 /// Entry in the directory traversal stack
@@ -100,7 +100,7 @@ const DirStackEntry = struct {
 
 /// Get the modification time of a path.
 /// For directories, iteratively finds the newest mtime of any file within.
-/// Uses explicit stack instead of recursion (TigerStyle: no recursion).
+/// Uses explicit stack instead of recursion.
 fn getPathMtime(path: []const u8) i128 {
     const cwd = std.fs.cwd();
 

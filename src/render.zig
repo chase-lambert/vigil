@@ -119,7 +119,7 @@ fn printText(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, opts:
     return win.print(&.{.{ .text = text, .style = style }}, print_opts);
 }
 
-/// Helper to format and print (uses a static buffer - TigerStyle)
+/// Helper to format and print (uses a static buffer)
 fn printFmt(win: vaxis.Window, comptime fmt: []const u8, args: anytype, style: vaxis.Cell.Style, opts: vaxis.Window.PrintOptions) vaxis.Window.PrintResult {
     var buf: [256]u8 = undefined;
     const text = std.fmt.bufPrint(&buf, fmt, args) catch return .{ .col = opts.col_offset, .row = opts.row_offset, .overflow = true };
@@ -306,7 +306,7 @@ fn cleanStackTraceLine(text: []const u8, project_root: []const u8) []const u8 {
     return path_part;
 }
 
-/// Render a test failure in Bacon style with expected/actual values.
+/// Render a test failure with badge and expected/actual values.
 /// Returns the number of rows used.
 fn renderTestFailureLine(
     win: vaxis.Window,
@@ -481,7 +481,7 @@ pub fn render(vx: *vaxis.Vaxis, ctx: RenderContext) void {
     renderFooter(footer_win, ctx.report, ctx.view);
 }
 
-/// Render the header bar in Bacon style: project | job | status | mode | watch
+/// Render the header bar: project | job | status | mode | watch
 /// Uses writeCell character-by-character like the libvaxis examples do.
 fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     const report = ctx.report;
@@ -491,7 +491,7 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     const project_name = ctx.project_name;
     const Cell = vaxis.Cell;
 
-    // Colors - softer palette inspired by Bacon
+    // Colors - softer palette
     const project_bg = vaxis.Color{ .rgb = .{ 0x88, 0x44, 0x88 } }; // Purple
     const job_bg = vaxis.Color{ .rgb = .{ 0x44, 0x88, 0x88 } }; // Teal
     const status_ok_bg = vaxis.Color{ .rgb = .{ 0x66, 0xcc, 0x66 } }; // Green
@@ -595,7 +595,7 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
         const is_selected = line.item_index == ctx.view.selected_item and line.kind.isItemStart();
         const bg_color: vaxis.Color = if (is_selected) colors.selected_bg else .default;
 
-        // Special rendering for test failure headers (Bacon-style badge)
+        // Special rendering for test failure headers
         if (line.kind == .test_fail_header) {
             // Add blank line before 2nd+ test failures
             if (seen_test_fail and row < content_height) {
