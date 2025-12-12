@@ -183,6 +183,46 @@ Pure functions that map `vaxis.Key` → `Action`. Different handlers for normal,
 
 ---
 
+## Color Palette
+
+Vigil uses a **semantic color palette** designed for long debugging sessions. Colors are intentionally muted to reduce eye strain while still conveying clear meaning.
+
+### Header Badge Colors
+
+| Element | Hex | Purpose |
+|---------|-----|---------|
+| **Project** | `#667788` | Neutral blue-gray — identity badge, not semantic |
+| **Job** | `#5588aa` | Brighter teal — active context, what you're doing |
+| **Error/Fail** | `#dd6666` | Warm red — alerts without being aggressive |
+| **OK/Pass** | `#66bb66` | Calm green — success state |
+| **Terse mode** | `#555566` | Gray-blue — de-emphasized secondary info |
+| **Full mode** | `#886688` | Purple — distinct from terse for quick recognition |
+| **Watching** | `#448844` | Clear green — active state |
+| **Paused** | `#aa5555` | Saturated red — important! You're not getting updates |
+
+### Design Rationale
+
+1. **Project badge is neutral**: It's identity, not action. Blue-gray doesn't compete for attention with status indicators.
+
+2. **Job badge is prominent**: This is what changes when you press `b`/`t`, so a brighter teal helps users track their context.
+
+3. **Terse vs Full are visually distinct**: Gray-blue (`#555566`) vs purple (`#886688`) — a glance tells you which mode you're in.
+
+4. **Paused is a warning**: At `#aa5555` (50% more saturated than the muted palette), it signals that file watching is off. This matters!
+
+5. **Muted ≠ dull**: The overall palette stays easy on the eyes during long sessions while maintaining clear visual hierarchy.
+
+### Content Colors
+
+| Element | Hex | Purpose |
+|---------|-----|---------|
+| **Error text** | `#ff6666` | Error messages and locations |
+| **Note text** | `#66ccff` | Compiler notes (distinct from errors) |
+| **Expected values** | `#88cc88` | Green — what should be |
+| **Actual values** | `#ff8888` | Red — what was found |
+
+---
+
 ## Main Event Loop
 
 ```zig

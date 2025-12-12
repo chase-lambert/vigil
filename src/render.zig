@@ -106,8 +106,8 @@ pub const colors = struct {
     // Test result colors
     pub const pass_badge_bg = vaxis.Color{ .rgb = .{ 0x22, 0x88, 0x22 } };
     pub const fail_badge_bg = vaxis.Color{ .rgb = .{ 0xcc, 0x44, 0x44 } };
-    pub const expected_fg = vaxis.Color{ .rgb = .{ 0x88, 0xcc, 0x88 } }; // Light green
-    pub const actual_fg = vaxis.Color{ .rgb = .{ 0xff, 0x88, 0x88 } }; // Light red
+    pub const expected_fg = vaxis.Color{ .rgb = .{ 0x88, 0xcc, 0x88 } }; // Green (expected)
+    pub const actual_fg = vaxis.Color{ .rgb = .{ 0xff, 0x88, 0x88 } }; // Red (actual/found)
 };
 
 /// Helper to print a single text segment with style (no wrap by default for headers/footers)
@@ -546,15 +546,15 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     const project_name = ctx.project_name;
     const Cell = vaxis.Cell;
 
-    // Colors - softer palette
-    const project_bg = vaxis.Color{ .rgb = .{ 0x88, 0x44, 0x88 } }; // Purple
-    const job_bg = vaxis.Color{ .rgb = .{ 0x44, 0x88, 0x88 } }; // Teal
-    const status_ok_bg = vaxis.Color{ .rgb = .{ 0x66, 0xcc, 0x66 } }; // Green
-    const status_fail_bg = vaxis.Color{ .rgb = .{ 0xcc, 0x66, 0x66 } }; // Red
-    const mode_terse_bg = vaxis.Color{ .rgb = .{ 0x55, 0x55, 0x66 } }; // Muted gray-blue
-    const mode_full_bg = vaxis.Color{ .rgb = .{ 0x66, 0x55, 0x66 } }; // Muted purple
-    const watch_on_bg = vaxis.Color{ .rgb = .{ 0x55, 0x77, 0x55 } }; // Muted green
-    const watch_off_bg = vaxis.Color{ .rgb = .{ 0x77, 0x55, 0x55 } }; // Muted red
+    // Colors - intentional semantic palette
+    const project_bg = vaxis.Color{ .rgb = .{ 0x66, 0x77, 0x88 } }; // Neutral blue-gray (identity, not semantic)
+    const job_bg = vaxis.Color{ .rgb = .{ 0x55, 0x88, 0xaa } }; // Brighter teal (active context - what you're doing)
+    const status_ok_bg = vaxis.Color{ .rgb = .{ 0x66, 0xbb, 0x66 } }; // Deeper green
+    const status_fail_bg = vaxis.Color{ .rgb = .{ 0xdd, 0x66, 0x66 } }; // Warmer red (more saturated)
+    const mode_terse_bg = vaxis.Color{ .rgb = .{ 0x55, 0x55, 0x66 } }; // Muted gray-blue (keep)
+    const mode_full_bg = vaxis.Color{ .rgb = .{ 0x88, 0x66, 0x88 } }; // Purple (more distinct from terse)
+    const watch_on_bg = vaxis.Color{ .rgb = .{ 0x44, 0x88, 0x44 } }; // Clearer green
+    const watch_off_bg = vaxis.Color{ .rgb = .{ 0xaa, 0x55, 0x55 } }; // Saturated red (paused matters!)
     const white = vaxis.Color{ .rgb = .{ 0xff, 0xff, 0xff } };
 
     var col: u16 = 0;
@@ -808,7 +808,7 @@ test "VisibleLineIterator - basic iteration" {
         .text_offset = text1.offset,
         .text_len = text1.len,
         .kind = .error_location,
-                .item_index = 0,
+        .item_index = 0,
         .location = null,
     });
 
@@ -817,7 +817,7 @@ test "VisibleLineIterator - basic iteration" {
         .text_offset = text2.offset,
         .text_len = text2.len,
         .kind = .source_line,
-                .item_index = 0,
+        .item_index = 0,
         .location = null,
     });
 
@@ -846,7 +846,7 @@ test "VisibleLineIterator - blank collapsing in terse mode" {
         .text_offset = text1.offset,
         .text_len = text1.len,
         .kind = .error_location,
-                .item_index = 0,
+        .item_index = 0,
         .location = null,
     });
 
@@ -859,7 +859,7 @@ test "VisibleLineIterator - blank collapsing in terse mode" {
         .text_offset = text2.offset,
         .text_len = text2.len,
         .kind = .source_line,
-                .item_index = 0,
+        .item_index = 0,
         .location = null,
     });
 
@@ -886,7 +886,7 @@ test "VisibleLineIterator - scroll handling" {
             .text_offset = text.offset,
             .text_len = text.len,
             .kind = .error_location,
-                        .item_index = 0,
+            .item_index = 0,
             .location = null,
         });
     }

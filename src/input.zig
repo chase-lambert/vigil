@@ -75,13 +75,12 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
         return .scroll_bottom;
     }
 
-
     // Search
     if (key.matches('/', .{})) {
         return .start_search;
     }
 
-    // Job shortcuts: b=build, t=test
+    // Job shortcuts
     const cp = key.codepoint;
     if (cp == 'b') return .{ .select_job = 0 }; // build
     if (cp == 't') return .{ .select_job = 1 }; // test

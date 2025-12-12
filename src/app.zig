@@ -14,7 +14,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const types = @import("types.zig");
 const parse = @import("parse.zig");
-const watch_mod = @import("watch.zig");
+const watch = @import("watch.zig");
 const render = @import("render.zig");
 const input = @import("input.zig");
 const assert = std.debug.assert;
@@ -38,7 +38,7 @@ pub const App = struct {
 
     // Core state (report is global, not stored here)
     view: types.ViewState,
-    watcher: watch_mod.Watcher,
+    watcher: watch.Watcher,
 
     // Build configuration (static allocation)
     build_args_buf: [types.MAX_CMD_ARGS][]const u8,
@@ -68,7 +68,7 @@ pub const App = struct {
         var app = App{
             .alloc = alloc,
             .view = types.ViewState.init(),
-            .watcher = watch_mod.Watcher.init(types.WatchConfig.init()),
+            .watcher = watch.Watcher.init(types.WatchConfig.init()),
             .build_args_buf = undefined,
             .build_args_len = 0,
             .current_job_name = undefined,
