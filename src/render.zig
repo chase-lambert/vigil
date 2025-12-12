@@ -100,7 +100,7 @@ pub const colors = struct {
     pub const note_fg = vaxis.Color{ .rgb = .{ 0x66, 0xcc, 0xff } };
     pub const success_fg = vaxis.Color{ .rgb = .{ 0x66, 0xff, 0x66 } };
     pub const success_bg = vaxis.Color{ .rgb = .{ 0x22, 0x44, 0x22 } };
-    pub const muted = vaxis.Color{ .rgb = .{ 0x88, 0x88, 0x88 } };
+    pub const muted = vaxis.Color{ .rgb = .{ 0xaa, 0xaa, 0xaa } };
     pub const header_bg = vaxis.Color{ .rgb = .{ 0x33, 0x33, 0x44 } };
     pub const selected_bg = vaxis.Color{ .rgb = .{ 0x44, 0x44, 0x55 } };
     // Test result colors
@@ -731,7 +731,7 @@ fn renderFooter(
 /// Get the display color for a line type.
 fn getLineColor(kind: types.LineKind, expanded: bool) vaxis.Color {
     return switch (kind) {
-        .error_location => colors.error_fg,
+        .error_location, .build_error => colors.error_fg,
         .note_location => colors.note_fg,
         .test_pass => colors.success_fg,
         .test_fail, .test_fail_header => colors.error_fg,

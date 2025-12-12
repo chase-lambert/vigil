@@ -40,6 +40,7 @@ pub const LineKind = enum(u8) {
     test_fail_header, // "error: 'test_name' failed:" (failure details)
     test_expected_value, // "expected X, found Y" (assertion details)
     test_summary, // "+- run test N/M passed, K failed"
+    build_error, // "error: ..." without file:line:col (e.g., "failed to check cache")
 
     // === Hidden in terse mode ===
     test_pass, // "test_name... OK" - hidden in terse mode
@@ -63,6 +64,7 @@ pub const LineKind = enum(u8) {
             .test_fail_header,
             .test_expected_value,
             .test_summary,
+            .build_error,
             .blank,
             => true,
 
@@ -395,7 +397,7 @@ pub const ViewState = struct {
         return .{
             .scroll = 0,
             .expanded = false,
-            .wrap = false,
+            .wrap = true,
             .search = undefined,
             .search_len = 0,
             .mode = .normal,

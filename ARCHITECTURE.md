@@ -119,6 +119,7 @@ pub const LineKind = enum(u8) {
     test_fail_header,    // "error: 'test_name' failed:"
     test_expected_value, // "expected X, found Y"
     test_summary,
+    build_error,         // "error: ..." without location (e.g., cache failures)
     blank,
 
     // Hidden in terse mode:

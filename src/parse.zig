@@ -32,6 +32,9 @@ pub const Parser = struct {
     /// Lines remaining to capture after note_location (source + pointer)
     /// Zig's note context lines have NO indentation unlike error context
     note_context_remaining: u8,
+    /// Lines remaining to capture after error_location (source + pointer)
+    /// Needed because source lines may have no indentation if code is at column 1
+    error_context_remaining: u8,
     /// Whether current context lines belong to a std library frame (hide in terse)
     in_std_frame_context: bool,
 
@@ -42,6 +45,7 @@ pub const Parser = struct {
             .current_test_failure = null,
             .test_failure_count = 0,
             .note_context_remaining = 0,
+            .error_context_remaining = 0,
             .in_std_frame_context = false,
         };
     }
@@ -52,6 +56,7 @@ pub const Parser = struct {
         self.current_test_failure = null;
         self.test_failure_count = 0;
         self.note_context_remaining = 0;
+        self.error_context_remaining = 0;
         self.in_std_frame_context = false;
     }
 
@@ -89,7 +94,7 @@ pub const Parser = struct {
 
         // Update stats
         switch (line.kind) {
-            .error_location => report.stats.errors += 1,
+            .error_location, .build_error => report.stats.errors += 1,
             .note_location => report.stats.notes += 1,
             .test_pass => report.stats.tests_passed += 1,
             .test_fail, .test_fail_header => report.stats.tests_failed += 1,
@@ -145,12 +150,29 @@ pub const Parser = struct {
         if (line.len == 0) {
             self.in_reference_block = false;
             self.note_context_remaining = 0;
+            self.error_context_remaining = 0;
             self.in_std_frame_context = false;
             return .blank;
         }
 
         const trimmed = std.mem.trimLeft(u8, line, " ");
         if (trimmed.len == 0) return .blank;
+
+        // Error context lines: after error_location, we expect source + pointer lines
+        // Regardless of indentation (source code at column 1 has no leading spaces)
+        if (self.error_context_remaining > 0) {
+            self.error_context_remaining -= 1;
+            // Check if it's actually context (not another location line or keyword)
+            if (std.mem.indexOf(u8, line, ": note:") == null and
+                std.mem.indexOf(u8, line, ": error:") == null and
+                !std.mem.startsWith(u8, trimmed, "referenced by:"))
+            {
+                if (isPointerLine(trimmed)) return .pointer_line;
+                return .source_line;
+            }
+            // It's another location line, stop expecting context
+            self.error_context_remaining = 0;
+        }
 
         // Note context lines: Zig's note context has NO indentation (unlike error context)
         // We expect 2 lines after a note: source line, then pointer line
@@ -202,7 +224,12 @@ pub const Parser = struct {
 
         if (std.mem.indexOf(u8, line, ": error:")) |_| {
             self.in_std_frame_context = is_std_frame;
-            return if (is_std_frame) .test_internal_frame else .error_location;
+            if (is_std_frame) {
+                return .test_internal_frame;
+            }
+            // Start expecting 2 context lines (source + pointer)
+            self.error_context_remaining = 2;
+            return .error_location;
         }
         if (std.mem.indexOf(u8, line, ": note:")) |_| {
             self.in_std_frame_context = is_std_frame;
@@ -245,6 +272,14 @@ pub const Parser = struct {
         if (std.mem.indexOf(u8, line, "transitive failure") != null) return .build_summary;
         if (std.mem.indexOf(u8, line, "steps succeeded") != null) return .build_summary;
         if (std.mem.startsWith(u8, trimmed, "error: the following build command failed")) return .final_error;
+
+        // Build-system error: "error: ..." without file:line:col prefix
+        // These are errors like "error: failed to check cache: ..." that don't have location info
+        // Must come AFTER specific error patterns above (command_dump, final_error)
+        // and BEFORE test patterns (which also use "error: '<name>' failed:")
+        if (std.mem.startsWith(u8, trimmed, "error: ") and !isTestFailHeader(line)) {
+            return .build_error;
+        }
 
         // Test result patterns (order matters - check specific patterns first)
         if (isTestFailHeader(line)) return .test_fail_header;
