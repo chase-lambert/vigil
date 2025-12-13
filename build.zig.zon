@@ -1,6 +1,6 @@
 .{
     .name = .vigil,
-    .version = "0.1.0",
+    .version = "1.0.0",
     .fingerprint = 0x4b3d7ac3b82dd494,
     .dependencies = .{
         .vaxis = .{

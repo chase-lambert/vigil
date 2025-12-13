@@ -78,7 +78,7 @@ pub const Watcher = struct {
     /// Enable or disable watching.
     /// Only snapshots on first activation (when last_check == 0).
     /// On resume, skips snapshot so files changed while paused are detected.
-    pub fn setActive(self: *Watcher, active: bool) void {
+    fn setActive(self: *Watcher, active: bool) void {
         self.active = active;
         if (active and self.last_check == 0) {
             self.snapshot();
@@ -165,21 +165,6 @@ fn getPathMtime(path: []const u8) i128 {
 
     return newest;
 }
-
-// =============================================================================
-// Future: Native Watchers
-// =============================================================================
-
-// TODO: Implement platform-native watchers for better efficiency:
-//
-// Linux: inotify
-// - IN_MODIFY, IN_CREATE, IN_DELETE, IN_MOVED_FROM, IN_MOVED_TO
-//
-// macOS: FSEvents or kqueue
-// - FSEventStreamCreate with kFSEventStreamCreateFlagFileEvents
-//
-// Windows: ReadDirectoryChangesW
-// - FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_FILE_NAME
 
 // =============================================================================
 // Tests

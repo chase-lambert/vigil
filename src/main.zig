@@ -114,5 +114,5 @@ fn printHelp() void {
 }
 
 fn printVersion() void {
-    std.debug.print("vigil 0.1.0\n", .{});
+    std.debug.print("vigil 1.0.0\n", .{});
 }

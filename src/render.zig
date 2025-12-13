@@ -199,16 +199,10 @@ fn printText(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, opts:
     return win.print(&.{.{ .text = text, .style = style }}, print_opts);
 }
 
-/// Helper to format and print (uses a static buffer)
-fn printFmt(win: vaxis.Window, comptime fmt: []const u8, args: anytype, style: vaxis.Cell.Style, opts: vaxis.Window.PrintOptions) vaxis.Window.PrintResult {
-    var buf: [256]u8 = undefined;
-    const text = std.fmt.bufPrint(&buf, fmt, args) catch return .{ .col = opts.col_offset, .row = opts.row_offset, .overflow = true };
-    return printText(win, text, style, opts);
-}
-
 /// Write a number digit-by-digit using writeCell.
 /// Handles the libvaxis static grapheme requirement for dynamic numbers.
-fn writeNumber(win: vaxis.Window, num: u8, col: *u16, bg: vaxis.Color, fg: vaxis.Color) void {
+/// Uses comptime to work with any integer type (u8 for badges, u16 for line counts).
+fn writeNumber(win: vaxis.Window, num: anytype, col: *u16, style: vaxis.Cell.Style) void {
     // Convert number to digits (reverse order)
     var digits: [8]u8 = undefined;
     var digit_count: u8 = 0;
@@ -224,7 +218,7 @@ fn writeNumber(win: vaxis.Window, num: u8, col: *u16, bg: vaxis.Color, fg: vaxis
         if (col.* >= win.width) return;
         win.writeCell(col.*, 0, .{
             .char = .{ .grapheme = charToStaticGrapheme(digits[i]), .width = 1 },
-            .style = .{ .bg = bg, .fg = fg, .bold = true },
+            .style = style,
         });
         col.* += 1;
     }
@@ -364,7 +358,7 @@ fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style
         // Check if we're at the start of a search match
         const in_match = search_query.len > 0 and
             i + search_query.len <= text.len and
-            matchesIgnoreCase(text[i..][0..search_query.len], search_query);
+            std.ascii.eqlIgnoreCase(text[i..][0..search_query.len], search_query);
 
         // Render the character(s)
         if (in_match) {
@@ -395,15 +389,6 @@ fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style
         }
     }
     return row - start_row + 1; // Number of rows used (at least 1)
-}
-
-/// Case-insensitive string comparison for search matching.
-fn matchesIgnoreCase(a: []const u8, b: []const u8) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |ac, bc| {
-        if (std.ascii.toLower(ac) != std.ascii.toLower(bc)) return false;
-    }
-    return true;
 }
 
 /// Count how many error_location lines exist up to (and including) the given line index.
@@ -475,7 +460,7 @@ fn renderErrorLine(
     col += 1;
 
     // Write error number (supports multi-digit, e.g. [12] not just [1]-[9])
-    writeNumber(row_win, error_num, &col, badge_bg, white);
+    writeNumber(row_win, error_num, &col, .{ .bg = badge_bg, .fg = white, .bold = true });
 
     row_win.writeCell(col, 0, .{
         .char = .{ .grapheme = " ", .width = 1 },
@@ -551,7 +536,7 @@ fn renderTestFailureLine(
     col += 1;
 
     // Write failure number (supports multi-digit, e.g. [12] not just [1]-[9])
-    writeNumber(row_win, failure_num, &col, badge_bg, white);
+    writeNumber(row_win, failure_num, &col, .{ .bg = badge_bg, .fg = white, .bold = true });
 
     row_win.writeCell(col, 0, .{
         .char = .{ .grapheme = " ", .width = 1 },
@@ -718,17 +703,18 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     col += 1; // Gap
 
     // 3. Status badge (building takes priority)
+    const badge_style = vaxis.Cell.Style{ .bg = status_fail_bg, .fg = white, .bold = true };
     if (ctx.is_building) {
         for (" building ") |c| writeChar(win, c, &col, status_building_bg, white);
     } else if (report.stats.tests_failed > 0) {
         // " N fail " or " N fails "
         writeChar(win, ' ', &col, status_fail_bg, white);
-        writeNumber(win, report.stats.tests_failed, &col, status_fail_bg, white);
+        writeNumber(win, report.stats.tests_failed, &col, badge_style);
         const fail_text: []const u8 = if (report.stats.tests_failed == 1) " fail " else " fails ";
         for (fail_text) |c| writeChar(win, c, &col, status_fail_bg, white);
     } else if (report.stats.errors > 0) {
         writeChar(win, ' ', &col, status_fail_bg, white);
-        writeNumber(win, report.stats.errors, &col, status_fail_bg, white);
+        writeNumber(win, report.stats.errors, &col, badge_style);
         const error_text: []const u8 = if (report.stats.errors == 1) " error " else " errors ";
         for (error_text) |c| writeChar(win, c, &col, status_fail_bg, white);
     } else if (report.stats.tests_passed > 0) {
@@ -861,29 +847,6 @@ fn renderFooter(
         }
     }.f;
 
-    // Helper to write a u16 number using static graphemes
-    const writeU16 = struct {
-        fn f(w: vaxis.Window, num: u16, c: *u16, style_fg: vaxis.Color) void {
-            var digits: [8]u8 = undefined;
-            var digit_count: u8 = 0;
-            var n = num;
-            while (n > 0 or digit_count == 0) : (digit_count += 1) {
-                digits[digit_count] = @intCast((n % 10) + '0');
-                n /= 10;
-            }
-            var i: u8 = digit_count;
-            while (i > 0) {
-                i -= 1;
-                if (c.* >= w.width) return;
-                w.writeCell(c.*, 0, .{
-                    .char = .{ .grapheme = charToStaticGrapheme(digits[i]), .width = 1 },
-                    .style = .{ .fg = style_fg },
-                });
-                c.* += 1;
-            }
-        }
-    }.f;
-
     // Build footer based on mode
     if (view.mode == .normal) {
         writeStr(win, "Hit / to search, h for help, ", &col, fg);
@@ -907,10 +870,11 @@ fn renderFooter(
     }
 
     // Line count: "  |  256/275"
+    const footer_style = vaxis.Cell.Style{ .fg = fg };
     writeStr(win, "  |  ", &col, fg);
-    writeU16(win, visible, &col, fg);
+    writeNumber(win, visible, &col, footer_style);
     writeStr(win, "/", &col, fg);
-    writeU16(win, total, &col, fg);
+    writeNumber(win, total, &col, footer_style);
 }
 
 /// Get the display color for a line type.
@@ -1018,7 +982,7 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
         "  Space      Toggle terse / full",
         "  w          Toggle line wrap",
         "",
-        "  b/t/r      Switch to build / test / run",
+        "  b/t        Switch to build / test",
         "  p          Pause / resume watching",
         "",
         "  q          Quit",

@@ -2,12 +2,10 @@
 
 A clean, fast build watcher for Zig, inspired by [Bacon](https://github.com/Canop/bacon) for Rust.
 
-Shows you the errors that matter, hides the noise.
-
 ## Features
 
-- **Terse Mode**: Filters build noise, shows only errors and context
-- **Full Mode**: Toggle to see complete output when needed
+- **Terse Mode**: Shows errors with source context, collapses verbose diagnostics
+- **Full Mode**: Toggle to see complete compiler output when needed
 - **File Watching**: Auto-rebuild on source changes (pause with `p`)
 - **Build & Test**: Switch between build (`b`) and test (`t`) with a keypress
 
@@ -66,10 +64,6 @@ Vigil uses fixed-size buffers (no heap allocation after startup):
 | Line length | 512 chars | Truncated |
 
 Vigil watches the entire project directory, traversing subdirectories to depth 8. Hidden dirs, `zig-out`, `zig-cache`, and `node_modules` are ignored.
-
-## Roadmap
-
-- [ ] Configuration file (`vigil.zon`)
 
 ## Architecture
 

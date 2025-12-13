@@ -128,7 +128,8 @@ pub const App = struct {
         self.tty.deinit();
     }
 
-    /// Get the global report.
+    /// Access the global report. Instance method for encapsulation
+    /// (allows future refactoring to per-App report without changing call sites).
     pub fn report(_: *const App) *types.Report {
         return &global_report;
     }
@@ -181,17 +182,13 @@ pub const App = struct {
         };
 
         // Parse ".name = .identifier" (Zig 0.15 enum literal style)
-        if (self.parseZonName(buf[0..bytes_read])) |name| {
+        if (parseZonName(buf[0..bytes_read])) |name| {
             const len = @min(name.len, self.project_name.len);
             @memcpy(self.project_name[0..len], name[0..len]);
             self.project_name_len = @intCast(len);
         } else {
             self.extractDirName();
         }
-    }
-
-    fn parseZonName(_: *App, content: []const u8) ?[]const u8 {
-        return parseZonNameFromContent(content);
     }
 
     /// Extract project name from directory name as fallback.
@@ -652,7 +649,7 @@ fn defaultBuildArgs() []const []const u8 {
 
 /// Parse project name from build.zig.zon content.
 /// Handles ".name = .identifier" (Zig 0.15) and ".name = \"string\"" (older)
-pub fn parseZonNameFromContent(content: []const u8) ?[]const u8 {
+pub fn parseZonName(content: []const u8) ?[]const u8 {
     const name_marker = ".name = ";
     const pos = std.mem.indexOf(u8, content, name_marker) orelse return null;
     const after_marker = content[pos + name_marker.len ..];
@@ -680,46 +677,46 @@ pub fn parseZonNameFromContent(content: []const u8) ?[]const u8 {
     return null;
 }
 
-test "parseZonNameFromContent - enum literal format (Zig 0.15)" {
+test "parseZonName - enum literal format (Zig 0.15)" {
     const content =
         \\.{
         \\    .name = .vigil,
         \\    .version = "0.1.0",
         \\}
     ;
-    const name = parseZonNameFromContent(content);
+    const name = parseZonName(content);
     try std.testing.expect(name != null);
     try std.testing.expectEqualStrings("vigil", name.?);
 }
 
-test "parseZonNameFromContent - string literal format (older Zig)" {
+test "parseZonName - string literal format (older Zig)" {
     const content =
         \\.{
         \\    .name = "my_project",
         \\    .version = "0.1.0",
         \\}
     ;
-    const name = parseZonNameFromContent(content);
+    const name = parseZonName(content);
     try std.testing.expect(name != null);
     try std.testing.expectEqualStrings("my_project", name.?);
 }
 
-test "parseZonNameFromContent - missing name field" {
+test "parseZonName - missing name field" {
     const content =
         \\.{
         \\    .version = "0.1.0",
         \\}
     ;
-    try std.testing.expect(parseZonNameFromContent(content) == null);
+    try std.testing.expect(parseZonName(content) == null);
 }
 
-test "parseZonNameFromContent - empty content" {
-    try std.testing.expect(parseZonNameFromContent("") == null);
+test "parseZonName - empty content" {
+    try std.testing.expect(parseZonName("") == null);
 }
 
-test "parseZonNameFromContent - name with underscores" {
+test "parseZonName - name with underscores" {
     const content = ".name = .my_cool_project,";
-    const name = parseZonNameFromContent(content);
+    const name = parseZonName(content);
     try std.testing.expect(name != null);
     try std.testing.expectEqualStrings("my_cool_project", name.?);
 }

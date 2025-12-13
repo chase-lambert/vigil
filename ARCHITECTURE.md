@@ -386,5 +386,4 @@ win.writeCell(col, row, .{
 
 ## Known Limitations
 
-1. **Polling-only watcher** — no inotify/FSEvents
-2. **Limited tests** — only types.zig, parse.zig, and input.zig have coverage
+1. **Polling-only watcher** — no inotify/FSEvents (simple, portable, works everywhere)

@@ -50,16 +50,6 @@ pub const Parser = struct {
         };
     }
 
-    pub fn reset(self: *Parser) void {
-        self.current_item = 0;
-        self.in_reference_block = false;
-        self.current_test_failure = null;
-        self.test_failure_count = 0;
-        self.note_context_remaining = 0;
-        self.error_context_remaining = 0;
-        self.in_std_frame_context = false;
-    }
-
     /// Parse a single line of output and add it to the report.
     /// Text is stored in the report's shared buffer (data-oriented design).
     /// Returns error if report is full.

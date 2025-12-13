@@ -222,10 +222,6 @@ pub const Stats = struct {
     pub fn hasErrors(self: Stats) bool {
         return self.errors > 0 or self.tests_failed > 0;
     }
-
-    pub fn isSuccess(self: Stats) bool {
-        return !self.hasErrors();
-    }
 };
 
 /// A complete parsed build report.
@@ -490,10 +486,9 @@ test "LineKind.shownInTerse" {
 
 test "Stats" {
     var stats = Stats{};
-    try std.testing.expect(stats.isSuccess());
+    try std.testing.expect(!stats.hasErrors());
 
     stats.errors = 1;
-    try std.testing.expect(!stats.isSuccess());
     try std.testing.expect(stats.hasErrors());
 }
 
