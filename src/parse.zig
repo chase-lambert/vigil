@@ -804,19 +804,10 @@ test "looksLikeCode" {
 // Golden Fixture Tests
 // =============================================================================
 
-/// Helper to read fixture file at runtime (tests run from project root)
-fn readFixture(comptime path: []const u8) ![]const u8 {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    return try file.readToEndAlloc(std.testing.allocator, 1024 * 1024);
-}
-
 test "golden fixture - compile error" {
-    const fixture = try readFixture("testdata/compile_error.txt");
-    defer std.testing.allocator.free(fixture);
-
+    const fixtures = @import("fixtures");
     var report = Report.init();
-    parseOutput(fixture, &report);
+    parseOutput(fixtures.compile_error, &report);
 
     // Should have errors
     try std.testing.expect(report.stats.errors > 0);
@@ -840,11 +831,9 @@ test "golden fixture - compile error" {
 }
 
 test "golden fixture - test failure" {
-    const fixture = try readFixture("testdata/test_failure.txt");
-    defer std.testing.allocator.free(fixture);
-
+    const fixtures = @import("fixtures");
     var report = Report.init();
-    parseOutput(fixture, &report);
+    parseOutput(fixtures.test_failure, &report);
 
     // Should have test failures
     try std.testing.expect(report.stats.tests_failed > 0);
@@ -869,11 +858,9 @@ test "golden fixture - test failure" {
 }
 
 test "golden fixture - success (empty output)" {
-    const fixture = try readFixture("testdata/success.txt");
-    defer std.testing.allocator.free(fixture);
-
+    const fixtures = @import("fixtures");
     var report = Report.init();
-    parseOutput(fixture, &report);
+    parseOutput(fixtures.success, &report);
 
     // Should have no errors
     try std.testing.expectEqual(@as(u8, 0), report.stats.errors);

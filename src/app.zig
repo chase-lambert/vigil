@@ -82,7 +82,7 @@ pub const App = struct {
     // State
     state: types.RunState,
     needs_redraw: bool,
-    has_build_error: bool, // True if last build command failed to start
+    spawn_failed: bool, // True if build command failed to spawn
 
     /// Initialize the application.
     pub fn init(alloc: std.mem.Allocator) !App {
@@ -103,7 +103,7 @@ pub const App = struct {
             .tty_buf = undefined,
             .state = .idle,
             .needs_redraw = true,
-            .has_build_error = false,
+            .spawn_failed = false,
         };
 
         // Initialize TTY with our static buffer
@@ -227,7 +227,7 @@ pub const App = struct {
     /// Run a build and update the report.
     pub fn runBuild(self: *App) !void {
         // Clear previous build error state - this build attempt started
-        self.has_build_error = false;
+        self.spawn_failed = false;
 
         // Show "building" status before blocking on child process
         self.state = .building;
@@ -293,7 +293,7 @@ pub const App = struct {
             // Check for file changes (if watching)
             if (self.watcher.checkForChanges()) {
                 self.runBuild() catch {
-                    self.has_build_error = true;
+                    self.spawn_failed = true;
                     self.needs_redraw = true;
                 };
             }
@@ -572,7 +572,7 @@ pub const App = struct {
             else => return,
         }
         self.runBuild() catch {
-            self.has_build_error = true;
+            self.spawn_failed = true;
             self.needs_redraw = true;
         };
     }
@@ -584,7 +584,7 @@ pub const App = struct {
             .view = &self.view,
             .watching = self.watcher.active,
             .is_building = (self.state == .building),
-            .has_build_error = self.has_build_error,
+            .spawn_failed = self.spawn_failed,
             .job_name = self.getJobName(),
             .project_name = self.getProjectName(),
             .project_root = self.getProjectRoot(),

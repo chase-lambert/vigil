@@ -18,7 +18,7 @@ pub const RenderContext = struct {
     view: *const types.ViewState,
     watching: bool,
     is_building: bool,
-    has_build_error: bool, // True if build command failed to start
+    spawn_failed: bool, // True if build command failed to spawn
     job_name: []const u8,
     project_name: []const u8,
     project_root: []const u8,
@@ -707,7 +707,7 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     const badge_style = vaxis.Cell.Style{ .bg = status_fail_bg, .fg = white, .bold = true };
     if (ctx.is_building) {
         for (" building ") |c| writeChar(win, c, &col, status_building_bg, white);
-    } else if (ctx.has_build_error) {
+    } else if (ctx.spawn_failed) {
         // Build command failed to start (e.g., zig not found, permission denied)
         for (" build error ") |c| writeChar(win, c, &col, status_fail_bg, white);
     } else if (report.stats.tests_failed > 0) {

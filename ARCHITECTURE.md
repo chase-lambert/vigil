@@ -104,7 +104,8 @@ pub const LineKind = enum(u8) {
 - `Stats` — Error/test counts
 
 **App state (in `app.zig`):**
-- `is_building: bool` — True while build is running (renders "building" badge)
+- `state: RunState` — FSM with states: `idle`, `building`, `quitting`
+- `spawn_failed: bool` — True if build command failed to spawn (not "build had errors")
 
 **Comptime assertions:**
 ```zig
@@ -289,7 +290,7 @@ pub fn run(self: *App) !void {
     try self.vx.enterAltScreen(writer);
     try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
 
-    while (self.running) {
+    while (self.state != .quitting) {
         while (loop.tryEvent()) |event| {
             self.handleEvent(event);
         }
@@ -381,6 +382,49 @@ win.writeCell(col, row, .{
 **Unsafe pattern**: `win.print()` with stack-allocated format buffers — the text pointer escapes into the cell buffer but stack is reused before render.
 
 **Startup order**: Call `loop.start()` BEFORE `queryTerminal()`.
+
+---
+
+## Test Fixtures Pattern
+
+Golden tests in `parse.zig` use fixture files from `testdata/`. Zig's `@embedFile` cannot access files outside the package boundary, so we use a **fixtures module pattern**:
+
+```
+testdata/
+├── fixtures.zig          # Exports fixtures via @embedFile
+├── compile_error.txt     # Sample compiler error output
+├── test_failure.txt      # Sample test failure output
+└── success.txt           # Empty (successful build)
+```
+
+**`testdata/fixtures.zig`:**
+```zig
+pub const compile_error = @embedFile("compile_error.txt");
+pub const test_failure = @embedFile("test_failure.txt");
+pub const success = @embedFile("success.txt");
+```
+
+**`build.zig`** imports the fixtures module for tests:
+```zig
+const fixtures_mod = b.createModule(.{
+    .root_source_file = b.path("testdata/fixtures.zig"),
+});
+// Added to test module imports
+```
+
+**Usage in tests:**
+```zig
+test "golden fixture - compile error" {
+    const fixtures = @import("fixtures");
+    var report = Report.init();
+    parseOutput(fixtures.compile_error, &report);
+    // assertions...
+}
+```
+
+**Why this works**: By placing `fixtures.zig` inside `testdata/`, the `@embedFile` paths are within that module's package boundary. The build system imports this module, giving tests access without violating Zig's security constraints.
+
+**Benefits**: Hermetic (no CWD dependency), fast (compile-time embedding), portable.
 
 ---
 

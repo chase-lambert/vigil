@@ -38,6 +38,11 @@ pub fn build(b: *std.Build) void {
     // Tests
     const test_step = b.step("test", "Run unit tests");
 
+    // Create fixtures module for golden tests (used by parse.zig)
+    const fixtures_mod = b.createModule(.{
+        .root_source_file = b.path("testdata/fixtures.zig"),
+    });
+
     // Test each module that has tests
     const test_modules = [_][]const u8{
         "src/types.zig",
@@ -56,6 +61,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
                 .imports = &.{
                     .{ .name = "vaxis", .module = vaxis_dep.module("vaxis") },
+                    .{ .name = "fixtures", .module = fixtures_mod },
                 },
             }),
         });
