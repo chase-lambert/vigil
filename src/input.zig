@@ -21,6 +21,8 @@ pub const Action = union(enum) {
     scroll_top,
     scroll_bottom,
     start_search,
+    next_match,
+    prev_match,
     cancel,
     confirm,
     show_help,
@@ -78,6 +80,12 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
     // Search
     if (key.matches('/', .{})) {
         return .start_search;
+    }
+    if (key.matches('n', .{})) {
+        return .next_match;
+    }
+    if (key.matches('N', .{}) or key.matches('n', .{ .shift = true })) {
+        return .prev_match;
     }
 
     // Job shortcuts
