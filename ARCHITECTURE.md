@@ -143,6 +143,31 @@ Components: Header (badges) → Content (lines) → Footer (help hints)
 
 Pure functions mapping `vaxis.Key` → `Action`. Different handlers for normal, help, and search modes.
 
+### Search Implementation
+
+Search uses a simple case-insensitive substring match across visible lines:
+
+```
+User types '/' → view.mode = .searching
+     │
+     ▼
+handleSearchMode() captures keystrokes into view.search buffer
+     │
+     ├─→ Characters: appends to buffer, returns .none (triggers redraw)
+     ├─→ Backspace: removes last char
+     ├─→ Enter: returns .confirm → findNextMatch() scrolls to first match
+     └─→ Escape: returns .cancel → exits search mode
+
+After confirm, 'n'/'N' in normal mode:
+     │
+     ▼
+findNextMatch()/findPrevMatch() in app.zig
+     │
+     └─→ Iterates visible lines, checks containsIgnoreCase()
+```
+
+**State**: `ViewState.search` (64-byte buffer) + `search_len` (u8)
+
 ---
 
 ## Key Patterns
@@ -335,17 +360,25 @@ Display:    [1] failed: test.name
 
 ## libvaxis Gotchas
 
-**Critical**: `writeCell` grapheme must point to **static/comptime strings**, not stack buffers.
+**Critical**: Cell graphemes must point to **static/comptime strings**, not stack buffers.
+
+libvaxis uses **deferred rendering** — it stores cell references in a screen buffer, then renders to terminal later. If grapheme pointers reference stack memory, that memory may be corrupted by subsequent code before render time.
 
 ```zig
 // BAD: Corruption in ReleaseSafe
 var buf: [8]u8 = undefined;
 cell.grapheme = std.fmt.bufPrint(&buf, "{d}", .{n});
 
-// GOOD: Switch on each digit to static string
-'0' => cell.grapheme = "0",
-'1' => cell.grapheme = "1",
+// GOOD: Use charToStaticGrapheme() for dynamic characters
+win.writeCell(col, row, .{
+    .char = .{ .grapheme = charToStaticGrapheme(byte), .width = 1 },
+    .style = style,
+});
 ```
+
+**Safe pattern for text rendering**: Use `writeCell` character-by-character with `charToStaticGrapheme()` (maps bytes to static string literals). See `renderHeader`, `renderFooter`, and `printContentLine` in `render.zig`.
+
+**Unsafe pattern**: `win.print()` with stack-allocated format buffers — the text pointer escapes into the cell buffer but stack is reused before render.
 
 **Startup order**: Call `loop.start()` BEFORE `queryTerminal()`.
 
@@ -353,6 +386,5 @@ cell.grapheme = std.fmt.bufPrint(&buf, "{d}", .{n});
 
 ## Known Limitations
 
-1. **Search mode stub** — `/` enters mode but does nothing
-2. **Polling-only watcher** — no inotify/FSEvents
-3. **Limited tests** — only types.zig and parse.zig have coverage
+1. **Polling-only watcher** — no inotify/FSEvents
+2. **Limited tests** — only types.zig, parse.zig, and input.zig have coverage

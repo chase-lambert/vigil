@@ -19,6 +19,26 @@ const render = @import("render.zig");
 const input = @import("input.zig");
 const assert = std.debug.assert;
 
+/// Case-insensitive substring search.
+fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len > haystack.len) return false;
+    if (needle.len == 0) return true;
+
+    const end = haystack.len - needle.len + 1;
+    for (0..end) |i| {
+        var match = true;
+        for (needle, 0..) |nc, j| {
+            const hc = haystack[i + j];
+            if (std.ascii.toLower(hc) != std.ascii.toLower(nc)) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
 /// Event type for the vaxis Loop
 pub const Event = union(enum) {
     key_press: vaxis.Key,
@@ -313,7 +333,13 @@ pub const App = struct {
         );
 
         switch (action) {
-            .none => {},
+            .none => {
+                // In search mode, typing characters modifies buffer but returns .none
+                // Still need to redraw to show the updated search query
+                if (self.view.mode == .searching) {
+                    self.needs_redraw = true;
+                }
+            },
             .quit => self.running = false,
             .toggle_expanded => {
                 // Preserve approximate scroll position when toggling modes
@@ -365,9 +391,30 @@ pub const App = struct {
                 self.needs_redraw = true;
             },
             .confirm => {
-                // TODO: Implement search confirmation
+                // Search for query and scroll to first match
+                if (self.findNextMatch(0)) |match_scroll| {
+                    self.view.scroll = match_scroll;
+                }
                 self.view.mode = .normal;
                 self.needs_redraw = true;
+            },
+            .next_match => {
+                // Find next match from current position
+                if (self.view.search_len > 0) {
+                    if (self.findNextMatch(self.view.scroll + 1)) |match_scroll| {
+                        self.view.scroll = match_scroll;
+                        self.needs_redraw = true;
+                    }
+                }
+            },
+            .prev_match => {
+                // Find previous match from current position
+                if (self.view.search_len > 0) {
+                    if (self.findPrevMatch(self.view.scroll)) |match_scroll| {
+                        self.view.scroll = match_scroll;
+                        self.needs_redraw = true;
+                    }
+                }
             },
             .select_job => |job_idx| {
                 self.switchJob(job_idx);
@@ -414,6 +461,87 @@ pub const App = struct {
         return visible -| lines_fit;
     }
 
+    /// Find the next visible line containing the search query.
+    /// Returns the scroll position of the match, or null if not found.
+    fn findNextMatch(self: *App, start_from: u16) ?u16 {
+        const query = self.view.getSearch();
+        if (query.len == 0) return null;
+
+        const rep = self.report();
+        const lines = rep.lines();
+        const text_buf = rep.textBuf();
+
+        var visible_idx: u16 = 0;
+        var prev_blank = false;
+
+        for (lines) |line| {
+            const should_show = self.view.expanded or line.kind.shownInTerse();
+            if (!should_show) continue;
+
+            // Collapse consecutive blanks in terse mode
+            if (!self.view.expanded and line.kind == .blank) {
+                if (prev_blank) continue;
+                prev_blank = true;
+            } else {
+                prev_blank = false;
+            }
+
+            // Check if this visible line matches (case-insensitive)
+            if (visible_idx >= start_from) {
+                const text = line.getText(text_buf);
+                if (containsIgnoreCase(text, query)) {
+                    return visible_idx;
+                }
+            }
+
+            visible_idx += 1;
+        }
+
+        return null;
+    }
+
+    /// Find the previous visible line containing the search query.
+    /// Returns the scroll position of the match, or null if not found.
+    fn findPrevMatch(self: *App, start_from: u16) ?u16 {
+        const query = self.view.getSearch();
+        if (query.len == 0) return null;
+        if (start_from == 0) return null;
+
+        const rep = self.report();
+        const lines = rep.lines();
+        const text_buf = rep.textBuf();
+
+        var visible_idx: u16 = 0;
+        var prev_blank = false;
+        var last_match: ?u16 = null;
+
+        for (lines) |line| {
+            const should_show = self.view.expanded or line.kind.shownInTerse();
+            if (!should_show) continue;
+
+            // Collapse consecutive blanks in terse mode
+            if (!self.view.expanded and line.kind == .blank) {
+                if (prev_blank) continue;
+                prev_blank = true;
+            } else {
+                prev_blank = false;
+            }
+
+            // Stop before reaching current position
+            if (visible_idx >= start_from) break;
+
+            // Check if this visible line matches (case-insensitive)
+            const text = line.getText(text_buf);
+            if (containsIgnoreCase(text, query)) {
+                last_match = visible_idx;
+            }
+
+            visible_idx += 1;
+        }
+
+        return last_match;
+    }
+
     /// Switch to a different job (build=0, test=1).
     fn switchJob(self: *App, job_idx: u8) void {
         switch (job_idx) {
@@ -449,6 +577,8 @@ pub const App = struct {
 
         if (self.view.mode == .help) {
             render.renderHelp(&self.vx);
+        } else if (self.view.mode == .searching) {
+            render.renderSearchInput(&self.vx, self.view.getSearch());
         }
     }
 };

@@ -791,6 +791,7 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
 }
 
 /// Render the footer with help text and stats.
+/// Uses writeCell with static graphemes to avoid libvaxis stack buffer corruption bug.
 fn renderFooter(
     win: vaxis.Window,
     report: *const types.Report,
@@ -799,22 +800,73 @@ fn renderFooter(
 ) void {
     const visible = report.getVisibleCount(view.expanded);
     const total = report.lines_len;
+    var col: u16 = 0;
+    const fg = colors.muted;
 
-    // Dynamic hints based on current state
-    const wrap_hint: []const u8 = if (view.wrap) "w to not wrap" else "w to wrap";
-    const pause_hint: []const u8 = if (watching) "p to pause" else "p to resume";
+    // Helper to write a static string character-by-character
+    const writeStr = struct {
+        fn f(w: vaxis.Window, text: []const u8, c: *u16, style_fg: vaxis.Color) void {
+            for (text) |byte| {
+                if (c.* >= w.width) return;
+                w.writeCell(c.*, 0, .{
+                    .char = .{ .grapheme = charToStaticGrapheme(byte), .width = 1 },
+                    .style = .{ .fg = style_fg },
+                });
+                c.* += 1;
+            }
+        }
+    }.f;
 
-    const help = switch (view.mode) {
-        .normal => "h for help",
-        .searching => "enter to confirm, esc to cancel",
-        .help => "q to close",
-    };
+    // Helper to write a u16 number using static graphemes
+    const writeU16 = struct {
+        fn f(w: vaxis.Window, num: u16, c: *u16, style_fg: vaxis.Color) void {
+            var digits: [8]u8 = undefined;
+            var digit_count: u8 = 0;
+            var n = num;
+            while (n > 0 or digit_count == 0) : (digit_count += 1) {
+                digits[digit_count] = @intCast((n % 10) + '0');
+                n /= 10;
+            }
+            var i: u8 = digit_count;
+            while (i > 0) {
+                i -= 1;
+                if (c.* >= w.width) return;
+                w.writeCell(c.*, 0, .{
+                    .char = .{ .grapheme = charToStaticGrapheme(digits[i]), .width = 1 },
+                    .style = .{ .fg = style_fg },
+                });
+                c.* += 1;
+            }
+        }
+    }.f;
 
+    // Build footer based on mode
     if (view.mode == .normal) {
-        _ = printFmt(win, "Hit / to search, {s}, {s}, {s}, q to quit  |  {d}/{d}", .{ help, wrap_hint, pause_hint, visible, total }, .{ .fg = colors.muted }, .{});
-    } else {
-        _ = printFmt(win, "{s}  |  {d}/{d}", .{ help, visible, total }, .{ .fg = colors.muted }, .{});
+        writeStr(win, "Hit / to search, h for help, ", &col, fg);
+        // Wrap hint
+        if (view.wrap) {
+            writeStr(win, "w to not wrap, ", &col, fg);
+        } else {
+            writeStr(win, "w to wrap, ", &col, fg);
+        }
+        // Pause hint
+        if (watching) {
+            writeStr(win, "p to pause, ", &col, fg);
+        } else {
+            writeStr(win, "p to resume, ", &col, fg);
+        }
+        writeStr(win, "q to quit", &col, fg);
+    } else if (view.mode == .searching) {
+        writeStr(win, "enter to confirm, esc to cancel", &col, fg);
+    } else { // .help
+        writeStr(win, "q to close", &col, fg);
     }
+
+    // Line count: "  |  256/275"
+    writeStr(win, "  |  ", &col, fg);
+    writeU16(win, visible, &col, fg);
+    writeStr(win, "/", &col, fg);
+    writeU16(win, total, &col, fg);
 }
 
 /// Get the display color for a line type.
@@ -832,6 +884,56 @@ fn getLineColor(kind: types.LineKind, expanded: bool) vaxis.Color {
     };
 }
 
+/// Render a search input overlay.
+pub fn renderSearchInput(vx: *vaxis.Vaxis, query: []const u8) void {
+    const win = vx.window();
+    const width = win.width;
+    const height = win.height;
+
+    // Center the search box
+    const box_width: u16 = 40;
+    const box_height: u16 = 3;
+    const x: i17 = @intCast((width -| box_width) / 2);
+    const y: i17 = @intCast((height -| box_height) / 2);
+
+    const search_win = win.child(.{
+        .x_off = x,
+        .y_off = y,
+        .width = box_width,
+        .height = box_height,
+    });
+
+    // Clear the area
+    search_win.fill(.{ .char = .{ .grapheme = " " }, .style = .{ .bg = colors.header_bg } });
+
+    // Title
+    _ = printText(search_win, " Search ", .{
+        .fg = .{ .rgb = .{ 0xff, 0xff, 0xff } },
+        .bold = true,
+        .bg = colors.header_bg,
+    }, .{ .row_offset = 0 });
+
+    // Input line with cursor
+    var input_buf: [64]u8 = undefined;
+    const prefix = " / ";
+    @memcpy(input_buf[0..prefix.len], prefix);
+    const query_len = @min(query.len, input_buf.len - prefix.len - 1);
+    @memcpy(input_buf[prefix.len..][0..query_len], query[0..query_len]);
+    input_buf[prefix.len + query_len] = '_'; // Cursor
+    const input_text = input_buf[0 .. prefix.len + query_len + 1];
+
+    _ = printText(search_win, input_text, .{
+        .fg = .default,
+        .bg = colors.header_bg,
+    }, .{ .row_offset = 1 });
+
+    // Hint
+    _ = printText(search_win, " Enter to search, Esc to cancel", .{
+        .fg = colors.muted,
+        .bg = colors.header_bg,
+    }, .{ .row_offset = 2 });
+}
+
 /// Render a help overlay.
 pub fn renderHelp(vx: *vaxis.Vaxis) void {
     const win = vx.window();
@@ -840,7 +942,7 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
 
     // Center the help box
     const box_width: u16 = 50;
-    const box_height: u16 = 15;
+    const box_height: u16 = 17;
     const x: i17 = @intCast((width -| box_width) / 2);
     const y: i17 = @intCast((height -| box_height) / 2);
 
@@ -866,6 +968,8 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
         "",
         "  j/k        Scroll down / up",
         "  g/G        Jump to top / bottom",
+        "  /          Search",
+        "  n/N        Next / previous match",
         "",
         "  Space      Toggle terse / full",
         "  w          Toggle line wrap",
