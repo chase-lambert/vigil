@@ -399,18 +399,25 @@ pub const App = struct {
                 self.needs_redraw = true;
             },
             .next_match => {
-                // Find next match from current position
+                // Find next match, wrapping to top if needed
                 if (self.view.search_len > 0) {
-                    if (self.findNextMatch(self.view.scroll + 1)) |match_scroll| {
+                    const match = self.findNextMatch(self.view.scroll + 1) orelse
+                        self.findNextMatch(0); // Wrap to beginning
+                    if (match) |match_scroll| {
                         self.view.scroll = match_scroll;
                         self.needs_redraw = true;
                     }
                 }
             },
             .prev_match => {
-                // Find previous match from current position
+                // Find previous match, wrapping to bottom if needed
                 if (self.view.search_len > 0) {
-                    if (self.findPrevMatch(self.view.scroll)) |match_scroll| {
+                    const match = self.findPrevMatch(self.view.scroll) orelse blk: {
+                        // Wrap: find last match by searching from end
+                        const visible = self.report().getVisibleCount(self.view.expanded);
+                        break :blk self.findPrevMatch(visible);
+                    };
+                    if (match) |match_scroll| {
                         self.view.scroll = match_scroll;
                         self.needs_redraw = true;
                     }

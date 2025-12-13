@@ -187,6 +187,9 @@ pub const colors = struct {
     pub const fail_badge_bg = vaxis.Color{ .rgb = .{ 0xcc, 0x44, 0x44 } };
     pub const expected_fg = vaxis.Color{ .rgb = .{ 0x88, 0xcc, 0x88 } }; // Green (expected)
     pub const actual_fg = vaxis.Color{ .rgb = .{ 0xff, 0x88, 0x88 } }; // Red (actual/found)
+    // Search highlighting
+    pub const search_match_bg = vaxis.Color{ .rgb = .{ 0x66, 0x55, 0x22 } }; // Amber/gold background
+    pub const search_match_fg = vaxis.Color{ .rgb = .{ 0xff, 0xee, 0x88 } }; // Bright yellow text
 };
 
 /// Helper to print a single text segment with style (no wrap by default for headers/footers)
@@ -342,12 +345,14 @@ fn charToStaticGrapheme(c: u8) []const u8 {
 /// Render a content line using writeCell character-by-character.
 /// This avoids the grapheme lifetime issue with win.print() on runtime strings.
 /// When wrap=true, continues to next row when width exceeded. Returns rows used.
-fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, start_row: u16, wrap: bool) u16 {
+/// If search_query is non-empty, highlights all case-insensitive matches.
+fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, start_row: u16, wrap: bool, search_query: []const u8) u16 {
     var col: u16 = 0;
     var row: u16 = start_row;
     const max_row = win.height;
 
-    for (text) |byte| {
+    var i: usize = 0;
+    while (i < text.len) {
         if (col >= win.width) {
             if (!wrap) break;
             // Wrap to next line
@@ -355,13 +360,50 @@ fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style
             row += 1;
             if (row >= max_row) break;
         }
-        win.writeCell(col, row, .{
-            .char = .{ .grapheme = charToStaticGrapheme(byte), .width = 1 },
-            .style = style,
-        });
-        col += 1;
+
+        // Check if we're at the start of a search match
+        const in_match = search_query.len > 0 and
+            i + search_query.len <= text.len and
+            matchesIgnoreCase(text[i..][0..search_query.len], search_query);
+
+        // Render the character(s)
+        if (in_match) {
+            // Highlight the entire match
+            var j: usize = 0;
+            while (j < search_query.len and i + j < text.len) : (j += 1) {
+                if (col >= win.width) {
+                    if (!wrap) break;
+                    col = 0;
+                    row += 1;
+                    if (row >= max_row) break;
+                }
+                win.writeCell(col, row, .{
+                    .char = .{ .grapheme = charToStaticGrapheme(text[i + j]), .width = 1 },
+                    .style = .{ .fg = colors.search_match_fg, .bg = colors.search_match_bg, .bold = true },
+                });
+                col += 1;
+            }
+            i += search_query.len;
+        } else {
+            // Normal character
+            win.writeCell(col, row, .{
+                .char = .{ .grapheme = charToStaticGrapheme(text[i]), .width = 1 },
+                .style = style,
+            });
+            col += 1;
+            i += 1;
+        }
     }
     return row - start_row + 1; // Number of rows used (at least 1)
+}
+
+/// Case-insensitive string comparison for search matching.
+fn matchesIgnoreCase(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |ac, bc| {
+        if (std.ascii.toLower(ac) != std.ascii.toLower(bc)) return false;
+    }
+    return true;
 }
 
 /// Count how many error_location lines exist up to (and including) the given line index.
@@ -780,7 +822,9 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
             text = cleanStackTraceLine(text, ctx.project_root);
         }
 
-        const rows_used = printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row, ctx.view.wrap);
+        // Pass search query for highlighting (only in normal mode, not while typing)
+        const search_query = if (ctx.view.mode == .normal) ctx.view.getSearch() else "";
+        const rows_used = printContentLine(win, text, .{ .fg = fg_color, .bg = bg_color }, row, ctx.view.wrap, search_query);
         row += rows_used;
 
         // Visual separation after test summary
