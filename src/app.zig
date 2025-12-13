@@ -207,21 +207,6 @@ pub const App = struct {
         return self.build_args_buf[0..self.build_args_len];
     }
 
-    /// Set custom watch paths (overrides defaults).
-    pub fn setWatchPaths(self: *App, paths: []const []const u8) !void {
-        var config = types.WatchConfig{
-            .paths = undefined,
-            .paths_lens = undefined,
-            .paths_count = 0,
-            .debounce_ms = 100,
-            .enabled = true,
-        };
-        for (paths) |path| {
-            try config.addPath(path);
-        }
-        self.watcher = watch.Watcher.init(config);
-    }
-
     /// Run a build and update the report.
     pub fn runBuild(self: *App) !void {
         // Show "building" status before blocking on child process

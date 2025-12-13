@@ -424,7 +424,7 @@ pub const WatchConfig = struct {
     /// Whether watching is enabled
     enabled: bool,
 
-    const DEFAULT_WATCH_PATHS = [_][]const u8{ "src", "build.zig", "build.zig.zon" };
+    const DEFAULT_WATCH_PATHS = [_][]const u8{"."};
 
     // Prove at comptime that defaults can't overflow
     comptime {

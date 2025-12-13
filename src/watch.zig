@@ -106,9 +106,11 @@ const DirStackEntry = struct {
 fn getPathMtime(path: []const u8) i128 {
     const cwd = std.fs.cwd();
 
-    // Try to stat as file first
+    // Try to stat as file first (skip if it's a directory)
     if (cwd.statFile(path)) |stat| {
-        return stat.mtime;
+        if (stat.kind != .directory) {
+            return stat.mtime;
+        }
     } else |_| {}
 
     // Try as directory - use explicit stack for traversal (no recursion)
@@ -127,10 +129,13 @@ fn getPathMtime(path: []const u8) i128 {
         const top = &stack_buf[stack_len - 1];
 
         if (top.iter.next() catch null) |entry| {
-            // Skip hidden files and common ignore patterns
+            // Skip hidden files and irrelevant directories
             if (entry.name.len > 0 and entry.name[0] == '.') continue;
             if (std.mem.eql(u8, entry.name, "zig-out")) continue;
             if (std.mem.eql(u8, entry.name, "zig-cache")) continue;
+            if (std.mem.eql(u8, entry.name, "node_modules")) continue;
+            if (std.mem.eql(u8, entry.name, "vendor")) continue;
+            if (std.mem.eql(u8, entry.name, "third_party")) continue;
 
             switch (entry.kind) {
                 .file => {
