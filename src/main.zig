@@ -19,44 +19,54 @@ pub fn main() !void {
     var build_args_buf: [types.MAX_CMD_ARGS][]const u8 = undefined;
     var build_args_len: u8 = 0;
 
+    // Custom watch paths (if specified via --watch)
+    var watch_paths_buf: [types.MAX_WATCH_PATHS][]const u8 = undefined;
+    var watch_paths_len: u8 = 0;
+
     build_args_buf[build_args_len] = "zig";
     build_args_len += 1;
     build_args_buf[build_args_len] = "build";
     build_args_len += 1;
 
-    // Determine job name and pass through extra args
+    // Determine job name and parse args
     var job_name: []const u8 = "build";
 
-    if (args.len > 1) {
-        // Check for special job names
-        const first_arg = args[1];
-        if (std.mem.eql(u8, first_arg, "test")) {
-            job_name = "test";
-            build_args_buf[build_args_len] = "test";
-            build_args_len += 1;
-        } else if (std.mem.eql(u8, first_arg, "run")) {
-            job_name = "run";
-            build_args_buf[build_args_len] = "run";
-            build_args_len += 1;
-        } else if (std.mem.eql(u8, first_arg, "--help") or std.mem.eql(u8, first_arg, "-h")) {
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+
+        // Vigil's own flags
+        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printHelp();
             return;
-        } else if (std.mem.eql(u8, first_arg, "--version") or std.mem.eql(u8, first_arg, "-v")) {
+        } else if (std.mem.eql(u8, arg, "--version") or std.mem.eql(u8, arg, "-v")) {
             printVersion();
             return;
-        } else {
-            // Pass through all args to zig build
-            for (args[1..]) |arg| {
-                if (build_args_len >= types.MAX_CMD_ARGS) break;
-                build_args_buf[build_args_len] = arg;
+        } else if (std.mem.eql(u8, arg, "--watch") or std.mem.eql(u8, arg, "-w")) {
+            // Next arg is the watch path
+            if (i + 1 < args.len) {
+                i += 1;
+                if (watch_paths_len < types.MAX_WATCH_PATHS) {
+                    watch_paths_buf[watch_paths_len] = args[i];
+                    watch_paths_len += 1;
+                }
+            }
+        } else if (std.mem.eql(u8, arg, "test")) {
+            // Job name (only if first non-flag arg)
+            if (build_args_len == 2) { // Only "zig" and "build" so far
+                job_name = "test";
+                build_args_buf[build_args_len] = "test";
                 build_args_len += 1;
             }
-        }
-
-        // Pass remaining args for special jobs too
-        if (std.mem.eql(u8, first_arg, "test") or std.mem.eql(u8, first_arg, "run")) {
-            for (args[2..]) |arg| {
-                if (build_args_len >= types.MAX_CMD_ARGS) break;
+        } else if (std.mem.eql(u8, arg, "run")) {
+            if (build_args_len == 2) {
+                job_name = "run";
+                build_args_buf[build_args_len] = "run";
+                build_args_len += 1;
+            }
+        } else {
+            // Pass through to zig build
+            if (build_args_len < types.MAX_CMD_ARGS) {
                 build_args_buf[build_args_len] = arg;
                 build_args_len += 1;
             }
@@ -70,6 +80,11 @@ pub fn main() !void {
     // Configure
     try app.setBuildArgs(build_args_buf[0..build_args_len]);
     app.setJobName(job_name);
+
+    // Set custom watch paths if specified
+    if (watch_paths_len > 0) {
+        try app.setWatchPaths(watch_paths_buf[0..watch_paths_len]);
+    }
 
     // Run initial build
     try app.runBuild();
@@ -90,15 +105,18 @@ fn printHelp() void {
         \\    test       Run 'zig build test'
         \\
         \\OPTIONS:
-        \\    -h, --help     Show this help
-        \\    -v, --version  Show version
+        \\    -w, --watch <path>  Watch directory (can repeat; default: src, build.zig)
+        \\    -h, --help          Show this help
+        \\    -v, --version       Show version
         \\
         \\    All other options are passed through to 'zig build'.
         \\
         \\EXAMPLES:
-        \\    vigil                      # Watch and run 'zig build'
-        \\    vigil test                 # Watch and run 'zig build test'
-        \\    vigil -Doptimize=ReleaseFast
+        \\    vigil                           # Watch src/ and run 'zig build'
+        \\    vigil test                      # Watch and run 'zig build test'
+        \\    vigil -w exercises              # Watch exercises/ (for Ziglings)
+        \\    vigil -w src -w lib             # Watch multiple directories
+        \\    vigil -Doptimize=ReleaseFast    # Pass options to zig build
         \\
         \\Note: -D options are project-specific (defined in build.zig).
         \\

@@ -62,6 +62,7 @@ pub const App = struct {
     // Flags
     needs_redraw: bool,
     running: bool,
+    is_building: bool,
 
     /// Initialize the application.
     pub fn init(alloc: std.mem.Allocator) !App {
@@ -82,6 +83,7 @@ pub const App = struct {
             .tty_buf = undefined,
             .needs_redraw = true,
             .running = true,
+            .is_building = false,
         };
 
         // Initialize TTY with our static buffer
@@ -205,8 +207,30 @@ pub const App = struct {
         return self.build_args_buf[0..self.build_args_len];
     }
 
+    /// Set custom watch paths (overrides defaults).
+    pub fn setWatchPaths(self: *App, paths: []const []const u8) !void {
+        var config = types.WatchConfig{
+            .paths = undefined,
+            .paths_lens = undefined,
+            .paths_count = 0,
+            .debounce_ms = 100,
+            .enabled = true,
+        };
+        for (paths) |path| {
+            try config.addPath(path);
+        }
+        self.watcher = watch.Watcher.init(config);
+    }
+
     /// Run a build and update the report.
     pub fn runBuild(self: *App) !void {
+        // Show "building" status before blocking on child process
+        self.is_building = true;
+        self.renderView();
+        self.vx.render(self.tty.writer()) catch {};
+        self.tty.writer().flush() catch {};
+        defer self.is_building = false;
+
         const args = if (self.build_args_len > 0)
             self.getBuildArgs()
         else
@@ -219,7 +243,6 @@ pub const App = struct {
         const rpt = self.report();
         parse.parseOutput(result.output, rpt);
         rpt.exit_code = result.exit_code;
-        rpt.was_killed = result.was_killed;
 
         // Reset view state for new output
         self.view.reset();
@@ -433,6 +456,7 @@ pub const App = struct {
             .report = self.report(),
             .view = &self.view,
             .watching = self.watcher.active,
+            .is_building = self.is_building,
             .job_name = self.getJobName(),
             .project_name = self.getProjectName(),
             .project_root = self.getProjectRoot(),
@@ -454,8 +478,6 @@ pub const BuildResult = struct {
     output: []const u8,
     /// Exit code (null if killed/crashed)
     exit_code: ?u8,
-    /// Whether the process was killed
-    was_killed: bool,
 
     pub fn deinit(self: *BuildResult, alloc: std.mem.Allocator) void {
         if (self.output.len > 0) {
@@ -470,28 +492,31 @@ pub const BuildResult = struct {
 fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult {
     assert(args.len > 0);
 
-    // Use the simple run() API - Zig's Child.run handles piping internally
-    const result = try std.process.Child.run(.{
+    const result = std.process.Child.run(.{
         .allocator = alloc,
         .argv = args,
         .max_output_bytes = types.MAX_TEXT_SIZE,
     });
 
-    // We only care about stderr - free stdout immediately
-    if (result.stdout.len > 0) {
-        alloc.free(result.stdout);
+    if (result) |r| {
+        // Free stdout - we only care about stderr for build errors
+        if (r.stdout.len > 0) alloc.free(r.stdout);
+
+        const exit_code: ?u8 = switch (r.term) {
+            .Exited => |code| code,
+            .Signal, .Stopped, .Unknown => null,
+        };
+
+        return BuildResult{
+            .output = r.stderr,
+            .exit_code = exit_code,
+        };
+    } else |_| {
+        return BuildResult{
+            .output = "",
+            .exit_code = null,
+        };
     }
-
-    const exit_code: ?u8 = switch (result.term) {
-        .Exited => |code| code,
-        .Signal, .Stopped, .Unknown => null,
-    };
-
-    return BuildResult{
-        .output = result.stderr,
-        .exit_code = exit_code,
-        .was_killed = result.term != .Exited,
-    };
 }
 
 /// Default build command when none specified.

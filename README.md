@@ -25,9 +25,21 @@ cp zig-out/bin/vigil ~/.local/bin/
 ```bash
 vigil                           # Default: zig build
 vigil test                      # Run tests
+vigil -w exercises              # Watch custom directory (e.g., Ziglings)
+vigil -w src -w lib             # Watch multiple directories
 vigil -Doptimize=ReleaseFast    # Pass options to zig build
 vigil test -Dtest-filter=foo    # Filter tests (if your build.zig supports it)
 ```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-w`, `--watch <path>` | Directory to watch (repeatable; default: `src`, `build.zig`) |
+| `-h`, `--help` | Show help |
+| `-v`, `--version` | Show version |
+
+All other options are passed through to `zig build`.
 
 > **Note**: `-D` options are project-specific. Options like `-Dtest-filter` only work if your `build.zig` exposes them via `b.option()`.
 

@@ -103,6 +103,9 @@ pub const LineKind = enum(u8) {
 - `ViewState` — UI state (scroll, mode)
 - `Stats` — Error/test counts
 
+**App state (in `app.zig`):**
+- `is_building: bool` — True while build is running (renders "building" badge)
+
 **Comptime assertions:**
 ```zig
 comptime {
@@ -229,7 +232,12 @@ app.handleKey() matches .select_job
      ▼
 app.switchJob() → app.runBuild()
      │
-     ├─→ runBuildCmd() spawns "zig build", waits, returns output
+     ├─→ is_building = true
+     ├─→ renderView() + flush (shows "building" badge immediately)
+     │
+     ├─→ runBuildCmd() spawns "zig build", blocks until complete
+     │
+     ├─→ is_building = false
      │
      ▼
 parse.parseOutput(output, &global_report)
@@ -285,6 +293,7 @@ pub fn run(self: *App) !void {
 |---------|-----|---------|
 | Project | `#667788` | Neutral identity |
 | Job | `#5588aa` | Active context |
+| Building | `#cc9944` | In-progress (amber) |
 | Error/Fail | `#dd6666` | Alert (warm red) |
 | OK/Pass | `#66bb66` | Success (calm green) |
 | Terse | `#555566` | De-emphasized |

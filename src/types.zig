@@ -246,8 +246,6 @@ pub const Report = struct {
     stats: Stats,
     /// Exit code from the build command
     exit_code: ?u8,
-    /// Whether the build was killed/interrupted
-    was_killed: bool,
     /// Cached terse line count (avoids O(n) iteration on every scroll/render)
     cached_terse_count: u16, // Max 8192 lines
     /// Test failure details for structured display
@@ -262,7 +260,6 @@ pub const Report = struct {
             .lines_len = 0,
             .stats = .{},
             .exit_code = null,
-            .was_killed = false,
             .cached_terse_count = 0,
             .test_failures_buf = undefined,
             .test_failures_len = 0,
@@ -274,7 +271,6 @@ pub const Report = struct {
         self.lines_len = 0;
         self.stats.reset();
         self.exit_code = null;
-        self.was_killed = false;
         self.cached_terse_count = 0;
         self.test_failures_len = 0;
     }

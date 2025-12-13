@@ -17,6 +17,7 @@ pub const RenderContext = struct {
     report: *const types.Report,
     view: *const types.ViewState,
     watching: bool,
+    is_building: bool,
     job_name: []const u8,
     project_name: []const u8,
     project_root: []const u8,
@@ -641,6 +642,7 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     const job_bg = vaxis.Color{ .rgb = .{ 0x55, 0x88, 0xaa } }; // Brighter teal (active context - what you're doing)
     const status_ok_bg = vaxis.Color{ .rgb = .{ 0x66, 0xbb, 0x66 } }; // Deeper green
     const status_fail_bg = vaxis.Color{ .rgb = .{ 0xdd, 0x66, 0x66 } }; // Warmer red (more saturated)
+    const status_building_bg = vaxis.Color{ .rgb = .{ 0xcc, 0x99, 0x44 } }; // Amber/orange (activity)
     const mode_terse_bg = vaxis.Color{ .rgb = .{ 0x55, 0x55, 0x66 } }; // Muted gray-blue (keep)
     const mode_full_bg = vaxis.Color{ .rgb = .{ 0x88, 0x66, 0x88 } }; // Purple (more distinct from terse)
     const watch_on_bg = vaxis.Color{ .rgb = .{ 0x44, 0x88, 0x44 } }; // Clearer green
@@ -673,25 +675,22 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     writeChar(win, ' ', &col, job_bg, white);
     col += 1; // Gap
 
-    // 3. Status badge
-    const status_bg = if (report.stats.tests_failed > 0 or report.stats.errors > 0)
-        status_fail_bg
-    else
-        status_ok_bg;
-
-    if (report.stats.tests_failed > 0) {
+    // 3. Status badge (building takes priority)
+    if (ctx.is_building) {
+        for (" building ") |c| writeChar(win, c, &col, status_building_bg, white);
+    } else if (report.stats.tests_failed > 0) {
         // " N fail " or " N fails "
-        writeChar(win, ' ', &col, status_bg, white);
-        writeNumber(win, report.stats.tests_failed, &col, status_bg, white);
+        writeChar(win, ' ', &col, status_fail_bg, white);
+        writeNumber(win, report.stats.tests_failed, &col, status_fail_bg, white);
         const fail_text: []const u8 = if (report.stats.tests_failed == 1) " fail " else " fails ";
-        for (fail_text) |c| writeChar(win, c, &col, status_bg, white);
+        for (fail_text) |c| writeChar(win, c, &col, status_fail_bg, white);
     } else if (report.stats.errors > 0) {
-        writeChar(win, ' ', &col, status_bg, white);
-        writeNumber(win, report.stats.errors, &col, status_bg, white);
+        writeChar(win, ' ', &col, status_fail_bg, white);
+        writeNumber(win, report.stats.errors, &col, status_fail_bg, white);
         const error_text: []const u8 = if (report.stats.errors == 1) " error " else " errors ";
-        for (error_text) |c| writeChar(win, c, &col, status_bg, white);
+        for (error_text) |c| writeChar(win, c, &col, status_fail_bg, white);
     } else if (report.stats.tests_passed > 0) {
-        for (" pass! ") |c| writeChar(win, c, &col, status_bg, white);
+        for (" pass! ") |c| writeChar(win, c, &col, status_ok_bg, white);
     } else {
         for (" OK ") |c| writeChar(win, c, &col, status_ok_bg, white);
     }
