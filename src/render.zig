@@ -458,10 +458,8 @@ fn renderErrorLine(
 /// Returns the number of rows used.
 fn renderTestFailureLine(
     win: vaxis.Window,
-    line: types.Line,
     report: *const types.Report,
     row: u16,
-    bg_color: vaxis.Color,
     line_idx: u16,
     max_rows: u16,
 ) u16 {
@@ -486,7 +484,7 @@ fn renderTestFailureLine(
 
     // If no TestFailure found, fall back to extracting from line text
     if (test_name.len == 0) {
-        const line_text = line.getText(text_buf);
+        const line_text = report.lines()[line_idx].getText(text_buf);
         // Pattern: "error: 'test_name' failed:"
         if (std.mem.indexOf(u8, line_text, "error: '")) |start| {
             const name_start = start + 8;
@@ -525,7 +523,7 @@ fn renderTestFailureLine(
         if (col >= win.width) break;
         win.writeCell(col, row, .{
             .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
-            .style = .{ .fg = colors.error_fg, .bg = bg_color, .bold = true },
+            .style = .{ .fg = colors.error_fg, .bold = true },
         });
         col += 1;
     }
@@ -535,7 +533,7 @@ fn renderTestFailureLine(
         if (col >= win.width) break;
         win.writeCell(col, row, .{
             .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
-            .style = .{ .fg = colors.error_fg, .bg = bg_color },
+            .style = .{ .fg = colors.error_fg },
         });
         col += 1;
     }
@@ -554,7 +552,7 @@ fn renderTestFailureLine(
             if (col >= win.width) break;
             win.writeCell(col, current_row, .{
                 .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
-                .style = .{ .fg = colors.muted, .bg = bg_color },
+                .style = .{ .fg = colors.muted },
             });
             col += 1;
         }
@@ -563,7 +561,7 @@ fn renderTestFailureLine(
             if (col >= win.width) break;
             win.writeCell(col, current_row, .{
                 .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
-                .style = .{ .fg = colors.expected_fg, .bg = bg_color },
+                .style = .{ .fg = colors.expected_fg },
             });
             col += 1;
         }
@@ -578,7 +576,7 @@ fn renderTestFailureLine(
                 if (col >= win.width) break;
                 win.writeCell(col, next_row, .{
                     .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
-                    .style = .{ .fg = colors.muted, .bg = bg_color },
+                    .style = .{ .fg = colors.muted },
                 });
                 col += 1;
             }
@@ -587,7 +585,7 @@ fn renderTestFailureLine(
                 if (col >= win.width) break;
                 win.writeCell(col, next_row, .{
                     .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
-                    .style = .{ .fg = colors.actual_fg, .bg = bg_color },
+                    .style = .{ .fg = colors.actual_fg },
                 });
                 col += 1;
             }
@@ -761,7 +759,7 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
             }
             seen_test_fail = true;
             const remaining_rows = content_height -| row;
-            row += renderTestFailureLine(win, line.*, ctx.report, row, bg_color, item.line_index, remaining_rows);
+            row += renderTestFailureLine(win, ctx.report, row, item.line_index, remaining_rows);
             // Add blank line after
             if (row < content_height) {
                 row += 1;
