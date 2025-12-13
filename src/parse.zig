@@ -549,6 +549,9 @@ pub fn parseOutput(output: []const u8, report: *Report) void {
 
     // Cache the terse line count for O(1) lookups
     report.computeTerseCount();
+
+    // Validate all invariants after parsing completes
+    report.debugValidate();
 }
 
 // =============================================================================
@@ -795,4 +798,87 @@ test "looksLikeCode" {
 
     // Non-code content
     try std.testing.expect(!looksLikeCode("")); // Empty is not code
+}
+
+// =============================================================================
+// Golden Fixture Tests
+// =============================================================================
+
+/// Helper to read fixture file at runtime (tests run from project root)
+fn readFixture(comptime path: []const u8) ![]const u8 {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    return try file.readToEndAlloc(std.testing.allocator, 1024 * 1024);
+}
+
+test "golden fixture - compile error" {
+    const fixture = try readFixture("testdata/compile_error.txt");
+    defer std.testing.allocator.free(fixture);
+
+    var report = Report.init();
+    parseOutput(fixture, &report);
+
+    // Should have errors
+    try std.testing.expect(report.stats.errors > 0);
+    try std.testing.expect(report.lines_len > 0);
+
+    // First line should be error_location
+    try std.testing.expectEqual(LineKind.error_location, report.lines()[0].kind);
+
+    // Should have note_location somewhere
+    var has_note = false;
+    for (report.lines()) |line| {
+        if (line.kind == .note_location) {
+            has_note = true;
+            break;
+        }
+    }
+    try std.testing.expect(has_note);
+
+    // Invariants should hold
+    report.debugValidate();
+}
+
+test "golden fixture - test failure" {
+    const fixture = try readFixture("testdata/test_failure.txt");
+    defer std.testing.allocator.free(fixture);
+
+    var report = Report.init();
+    parseOutput(fixture, &report);
+
+    // Should have test failures
+    try std.testing.expect(report.stats.tests_failed > 0);
+    try std.testing.expect(report.stats.tests_passed > 0);
+    try std.testing.expect(report.lines_len > 0);
+
+    // Should have test_fail_header
+    var has_fail_header = false;
+    for (report.lines()) |line| {
+        if (line.kind == .test_fail_header) {
+            has_fail_header = true;
+            break;
+        }
+    }
+    try std.testing.expect(has_fail_header);
+
+    // Should have extracted test failure details
+    try std.testing.expect(report.test_failures_len > 0);
+
+    // Invariants should hold
+    report.debugValidate();
+}
+
+test "golden fixture - success (empty output)" {
+    const fixture = try readFixture("testdata/success.txt");
+    defer std.testing.allocator.free(fixture);
+
+    var report = Report.init();
+    parseOutput(fixture, &report);
+
+    // Should have no errors
+    try std.testing.expectEqual(@as(u8, 0), report.stats.errors);
+    try std.testing.expectEqual(@as(u8, 0), report.stats.tests_failed);
+
+    // Invariants should hold
+    report.debugValidate();
 }

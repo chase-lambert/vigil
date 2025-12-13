@@ -1,0 +1,16 @@
+src/main.zig:42:13: error: expected type 'u32', found 'bool'
+    const x = is_valid;
+            ^~~~~~~~~
+src/main.zig:10:5: note: 'is_valid' declared here
+    is_valid: bool,
+    ^~~~~~~~~~~~
+referenced by:
+    src/main.zig:50:9
+    src/lib.zig:120:15
+    3 reference(s) hidden; use '-freference-trace' to see them all
+error: the following command failed:
+/home/user/.zvm/0.15.0/zig build-exe src/main.zig -Mroot=src/main.zig
+Build Summary: 0/1 steps succeeded
+└─ compile exe example Debug native... FAILED
+error: the following build command failed:
+zig build

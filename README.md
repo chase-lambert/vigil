@@ -43,7 +43,7 @@ All options are passed through to `zig build`. Use `-h` for help.
 | `w` | Toggle line wrap |
 | `b`/`t` | Switch to build/test job |
 | `p` | Pause/resume watching |
-| `?` | Help |
+| `h`/`?` | Help |
 | `q` | Quit |
 
 ## What Gets Filtered
@@ -52,18 +52,25 @@ All options are passed through to `zig build`. Use `-h` for help.
 
 **Hidden**: Build tree (`└─ compile...`), `referenced by:` traces, command dumps, build summaries
 
-## Limits
+## Limits & Behavior
 
-Vigil uses fixed-size buffers (no heap allocation after startup):
+Vigil uses fixed-size buffers for predictable memory usage (~740KB):
 
-| Limit | Value | Overflow behavior |
-|-------|-------|-------------------|
-| Output lines | 8,192 | Stops parsing |
-| Numbered errors | 255 | Capped at `[255]` |
-| Test failures | 255 | Structured display stops |
+| Limit | Value | What happens when exceeded |
+|-------|-------|---------------------------|
+| Output lines | 8,192 | Additional lines dropped |
+| Text buffer | 512 KB | Parsing stops |
 | Line length | 512 chars | Truncated |
+| Numbered errors | 255 | Capped at `[255]` badge |
+| Test failures | 255 | Structured display stops |
+| Watch paths | 64 | Extra paths ignored |
+| Watch depth | 8 levels | Deeper directories not watched |
 
-Vigil watches the entire project directory, traversing subdirectories to depth 8. Hidden dirs, `zig-out`, `zig-cache`, and `node_modules` are ignored.
+**File watching:** Vigil watches the entire project directory. Hidden dirs, `zig-out`, `zig-cache`, `node_modules`, `vendor`, and `third_party` are ignored.
+
+**Debounce:** File changes within 100ms are batched into a single rebuild.
+
+**Large output:** If your build produces more than 8K lines, the output may be truncated. Try running `zig build 2>&1 | wc -l` to check, then address the root cause of excessive output.
 
 ## Architecture
 

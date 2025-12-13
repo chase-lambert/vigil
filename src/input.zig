@@ -100,7 +100,8 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
 pub fn handleHelpMode(key: vaxis.Key) Action {
     if (key.matches('q', .{}) or
         key.matches(vaxis.Key.escape, .{}) or
-        key.matches('?', .{}))
+        key.matches('?', .{}) or
+        key.matches('h', .{}))
     {
         return .hide_help;
     }
@@ -219,6 +220,7 @@ test "handleHelpMode - exit keys" {
     try std.testing.expectEqual(Action.hide_help, handleHelpMode(testKey('q', .{})));
     try std.testing.expectEqual(Action.hide_help, handleHelpMode(testKey(vaxis.Key.escape, .{})));
     try std.testing.expectEqual(Action.hide_help, handleHelpMode(testKey('?', .{})));
+    try std.testing.expectEqual(Action.hide_help, handleHelpMode(testKey('h', .{})));
     // Other keys do nothing in help mode
     try std.testing.expectEqual(Action.none, handleHelpMode(testKey('j', .{})));
     try std.testing.expectEqual(Action.none, handleHelpMode(testKey('r', .{})));

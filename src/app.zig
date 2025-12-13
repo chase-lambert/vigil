@@ -79,10 +79,10 @@ pub const App = struct {
     // Note: Loop is NOT stored as a field because it holds pointers to vx and tty.
     // If App is moved, those pointers would become invalid. Loop is created in run().
 
-    // Flags
+    // State
+    state: types.RunState,
     needs_redraw: bool,
-    running: bool,
-    is_building: bool,
+    has_build_error: bool, // True if last build command failed to start
 
     /// Initialize the application.
     pub fn init(alloc: std.mem.Allocator) !App {
@@ -101,9 +101,9 @@ pub const App = struct {
             .vx = undefined,
             .tty = undefined,
             .tty_buf = undefined,
+            .state = .idle,
             .needs_redraw = true,
-            .running = true,
-            .is_building = false,
+            .has_build_error = false,
         };
 
         // Initialize TTY with our static buffer
@@ -226,12 +226,15 @@ pub const App = struct {
 
     /// Run a build and update the report.
     pub fn runBuild(self: *App) !void {
+        // Clear previous build error state - this build attempt started
+        self.has_build_error = false;
+
         // Show "building" status before blocking on child process
-        self.is_building = true;
+        self.state = .building;
         self.renderView();
         self.vx.render(self.tty.writer()) catch {};
         self.tty.writer().flush() catch {};
-        defer self.is_building = false;
+        defer self.state = .idle;
 
         const args = if (self.build_args_len > 0)
             self.getBuildArgs()
@@ -281,7 +284,7 @@ pub const App = struct {
         // The 1 second timeout allows time for terminal to respond
         try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
 
-        while (self.running) {
+        while (self.state != .quitting) {
             // Process all pending events (non-blocking)
             while (loop.tryEvent()) |event| {
                 self.handleEvent(event);
@@ -289,8 +292,9 @@ pub const App = struct {
 
             // Check for file changes (if watching)
             if (self.watcher.checkForChanges()) {
-                self.runBuild() catch |err| {
-                    std.log.err("Build failed: {}", .{err});
+                self.runBuild() catch {
+                    self.has_build_error = true;
+                    self.needs_redraw = true;
                 };
             }
 
@@ -337,7 +341,7 @@ pub const App = struct {
                     self.needs_redraw = true;
                 }
             },
-            .quit => self.running = false,
+            .quit => self.state = .quitting,
             .toggle_expanded => {
                 // Preserve approximate scroll position when toggling modes
                 const old_visible = self.report().getVisibleCount(self.view.expanded);
@@ -348,6 +352,9 @@ pub const App = struct {
                 if (old_visible > 0) {
                     self.view.scroll = @intCast(@as(u32, old_scroll) * new_visible / old_visible);
                 }
+                // Clamp to valid range (prevents out-of-bounds after mode switch)
+                const max_scroll = self.getMaxScroll();
+                self.view.scroll = @min(self.view.scroll, max_scroll);
                 self.needs_redraw = true;
             },
             .toggle_watch => {
@@ -564,7 +571,10 @@ pub const App = struct {
             },
             else => return,
         }
-        self.runBuild() catch {};
+        self.runBuild() catch {
+            self.has_build_error = true;
+            self.needs_redraw = true;
+        };
     }
 
     /// Render the current state.
@@ -573,7 +583,8 @@ pub const App = struct {
             .report = self.report(),
             .view = &self.view,
             .watching = self.watcher.active,
-            .is_building = self.is_building,
+            .is_building = (self.state == .building),
+            .has_build_error = self.has_build_error,
             .job_name = self.getJobName(),
             .project_name = self.getProjectName(),
             .project_root = self.getProjectRoot(),

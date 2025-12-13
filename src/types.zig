@@ -24,6 +24,21 @@ pub const MAX_ERRORS: u8 = 255; // Badge numbering limit
 pub const MAX_TEST_FAILURES: u8 = 255; // Structured failure tracking limit
 
 // =============================================================================
+// App Run State (FSM)
+// =============================================================================
+
+/// Explicit state machine for app lifecycle.
+/// Replaces boolean flags (running, is_building) to prevent impossible states.
+pub const RunState = enum {
+    /// Normal operation, waiting for input or file changes
+    idle,
+    /// Build process running (blocks other builds)
+    building,
+    /// About to exit the application
+    quitting,
+};
+
+// =============================================================================
 // Line Classification
 // =============================================================================
 
@@ -269,6 +284,7 @@ pub const Report = struct {
         self.exit_code = null;
         self.cached_terse_count = 0;
         self.test_failures_len = 0;
+        self.debugValidate();
     }
 
     /// Get the shared text buffer slice (for Line.getText)
@@ -334,6 +350,32 @@ pub const Report = struct {
     pub fn getVisibleCount(self: *const Report, expanded: bool) u16 {
         if (expanded) return self.lines_len;
         return self.cached_terse_count;
+    }
+
+    /// Validate all Report invariants. Asserts in Debug and ReleaseSafe.
+    /// Call after any mutation to catch bugs early.
+    ///
+    /// Invariants checked:
+    /// - I1: text_len <= MAX_TEXT_SIZE
+    /// - I2: lines_len <= MAX_LINES
+    /// - I3: Each line's text_offset + text_len <= text_len
+    /// - I4: test_failures_len <= MAX_TEST_FAILURES
+    pub fn debugValidate(self: *const Report) void {
+        // I1: Text buffer bounds
+        assert(self.text_len <= MAX_TEXT_SIZE);
+
+        // I2: Line count bounds
+        assert(self.lines_len <= MAX_LINES);
+
+        // I3: Each line references valid text
+        for (self.lines()) |line| {
+            assert(line.text_len <= MAX_LINE_LEN);
+            assert(line.text_offset <= self.text_len);
+            assert(line.text_offset + line.text_len <= self.text_len);
+        }
+
+        // I4: Test failure count bounds
+        assert(self.test_failures_len <= MAX_TEST_FAILURES);
     }
 
     /// Compute and cache the terse line count.
