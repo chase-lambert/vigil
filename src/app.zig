@@ -308,8 +308,15 @@ pub const App = struct {
             .none => {},
             .quit => self.running = false,
             .toggle_expanded => {
+                // Preserve approximate scroll position when toggling modes
+                const old_visible = self.report().getVisibleCount(self.view.expanded);
+                const old_scroll = self.view.scroll;
                 self.view.expanded = !self.view.expanded;
-                self.view.scroll = 0;
+                const new_visible = self.report().getVisibleCount(self.view.expanded);
+                // Scale scroll proportionally to new visible count
+                if (old_visible > 0) {
+                    self.view.scroll = @intCast(@as(u32, old_scroll) * new_visible / old_visible);
+                }
                 self.needs_redraw = true;
             },
             .toggle_watch => {
@@ -384,13 +391,19 @@ pub const App = struct {
     }
 
     /// Get the maximum scroll position.
-    /// This ensures the last screenful of content is always visible,
-    /// with a few lines of padding at the bottom for breathing room.
+    ///
+    /// Calculates exactly how many visible lines fit in the viewport when accounting
+    /// for multi-row rendering (error badges, test failures with expected/found, wrapped lines).
     fn getMaxScroll(self: *const App) u16 {
         const visible = self.report().getVisibleCount(self.view.expanded);
         const viewport = self.getContentHeight();
-        const padding: u16 = 3; // Lines of empty space at bottom
-        return (visible + padding) -| viewport;
+        const lines_fit = render.countLinesThatFitInViewport(
+            self.report(),
+            &self.view,
+            viewport,
+            self.vx.screen.width,
+        );
+        return visible -| lines_fit;
     }
 
     /// Switch to a different job (build=0, test=1).

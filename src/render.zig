@@ -93,6 +93,84 @@ pub const VisibleLineIterator = struct {
     }
 };
 
+/// Count how many visible lines fit in viewport when rendered from the end.
+/// Used to calculate accurate max_scroll, accounting for multi-row lines
+/// (errors with padding, test failures with expected/found, wrapped lines).
+pub fn countLinesThatFitInViewport(
+    report: *const types.Report,
+    view: *const types.ViewState,
+    viewport: u16,
+    width: u16,
+) u16 {
+    const lines = report.lines();
+    if (lines.len == 0 or viewport == 0) return 0;
+
+    // Step 1: Collect visible line indices (forward for blank collapse logic)
+    var visible_indices: [types.MAX_LINES]u16 = undefined;
+    var count: u16 = 0;
+    var prev_blank = false;
+
+    for (lines, 0..) |line, idx| {
+        if (!view.expanded and !line.kind.shownInTerse()) continue;
+        if (!view.expanded and line.kind == .blank and prev_blank) continue;
+        prev_blank = (line.kind == .blank);
+        visible_indices[count] = @intCast(idx);
+        count += 1;
+    }
+
+    if (count == 0) return 0;
+
+    // Step 2: Walk backwards, compute rows with correct first-of-kind logic
+    // Key insight: when walking backwards, "no error after" means this is the first error
+    // if we started rendering from here
+    var has_error_after = false;
+    var has_test_fail_after = false;
+    var rows_accumulated: u16 = 0;
+    var lines_fit: u16 = 0;
+
+    var i = count;
+    while (i > 0) {
+        i -= 1;
+        const idx = visible_indices[i];
+        const line = lines[idx];
+
+        // Calculate rows inline - mirrors renderContent() logic
+        const rows: u16 = switch (line.kind) {
+            .error_location => if (has_error_after) 3 else 2, // blank before 2nd+, line, blank after
+            .test_fail_header => blk: {
+                var r: u16 = if (has_test_fail_after) 3 else 2;
+                // Check if has expected/found values
+                for (report.testFailures()) |tf| {
+                    if (tf.line_index == idx and tf.expected_len > 0) {
+                        r += 3; // blank + expected + found
+                        break;
+                    }
+                }
+                break :blk r;
+            },
+            .note_location => 2, // blank before + line
+            .test_summary => 2, // line + blank after
+            else => blk: {
+                var r: u16 = 1;
+                if (view.wrap and line.text_len > width) {
+                    r += (line.text_len - 1) / width;
+                }
+                break :blk r;
+            },
+        };
+
+        // Update state for next iteration (backwards)
+        if (line.kind == .error_location) has_error_after = true;
+        if (line.kind == .test_fail_header) has_test_fail_after = true;
+
+        if (rows_accumulated + rows > viewport) break;
+        rows_accumulated += rows;
+        lines_fit += 1;
+    }
+
+    return lines_fit;
+}
+
 /// Color palette for consistent theming.
 pub const colors = struct {
     pub const error_fg = vaxis.Color{ .rgb = .{ 0xff, 0x66, 0x66 } };
@@ -126,7 +204,7 @@ fn printFmt(win: vaxis.Window, comptime fmt: []const u8, args: anytype, style: v
 
 /// Write a number digit-by-digit using writeCell.
 /// Handles the libvaxis static grapheme requirement for dynamic numbers.
-fn writeNumber(win: vaxis.Window, num: u16, col: *u16, bg: vaxis.Color, fg: vaxis.Color) void {
+fn writeNumber(win: vaxis.Window, num: u8, col: *u16, bg: vaxis.Color, fg: vaxis.Color) void {
     // Convert number to digits (reverse order)
     var digits: [8]u8 = undefined;
     var digit_count: u8 = 0;
@@ -285,6 +363,20 @@ fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style
     return row - start_row + 1; // Number of rows used (at least 1)
 }
 
+/// Count how many error_location lines exist up to (and including) the given line index.
+/// Used to display absolute error numbers when scrolled. Capped at MAX_ERRORS (255).
+fn countErrorsUpTo(report: *const types.Report, line_index: u16) u8 {
+    var count: u8 = 0;
+    const lines = report.lines();
+    const end = @min(line_index + 1, @as(u16, @intCast(lines.len)));
+    for (lines[0..end]) |line| {
+        if (line.kind == .error_location) {
+            if (count < types.MAX_ERRORS) count += 1;
+        }
+    }
+    return count;
+}
+
 /// Clean up a stack trace location line for terse display.
 /// Input: "/full/path/to/project/src/main.zig:26:5: 0x10356a8 in test.name (main.zig)"
 /// Output: "src/main.zig:26:5" (relative path and location, no memory address)
@@ -321,7 +413,7 @@ fn renderErrorLine(
     win: vaxis.Window,
     text: []const u8,
     row: u16,
-    error_num: u16,
+    error_num: u8,
 ) u16 {
     var col: u16 = 0;
     const bg_color: vaxis.Color = .default;
@@ -636,7 +728,6 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
     var row: u16 = 0;
     var seen_test_fail: bool = false;
     var seen_error: bool = false;
-    var error_count: u16 = 0;
 
     while (iter.next()) |item| {
         if (row >= content_height) break;
@@ -651,9 +742,10 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
                 row += 1;
             }
             seen_error = true;
-            error_count += 1;
+            // Use absolute error number (count of all errors up to this line)
+            const error_num = countErrorsUpTo(ctx.report, item.line_index);
             const text = line.getText(text_buf);
-            row += renderErrorLine(win, text, row, error_count);
+            row += renderErrorLine(win, text, row, error_num);
             // Add blank line after (before source/pointer lines)
             if (row < content_height) {
                 row += 1;

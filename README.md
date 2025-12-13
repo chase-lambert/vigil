@@ -50,6 +50,19 @@ vigil test -Dtest-filter=foo    # Filter tests (if your build.zig supports it)
 
 **Hidden**: Build tree (`└─ compile...`), `referenced by:` traces, command dumps, build summaries
 
+## Limits
+
+Vigil uses fixed-size buffers (no heap allocation after startup):
+
+| Limit | Value | Overflow behavior |
+|-------|-------|-------------------|
+| Output lines | 8,192 | Stops parsing |
+| Numbered errors | 255 | Capped at `[255]` |
+| Test failures | 255 | Structured display stops |
+| Line length | 512 chars | Truncated |
+
+**Watch paths**: 64 root directories (e.g., `src`, `build.zig`). Subdirectories are traversed automatically to depth 8.
+
 ## Project Status
 
 ### Implemented

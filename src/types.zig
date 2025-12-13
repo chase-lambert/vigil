@@ -14,15 +14,14 @@ const assert = std.debug.assert;
 // =============================================================================
 
 pub const MAX_LINES: usize = 8192;
-pub const MAX_LINE_LEN: usize = 512; // Max single line length
+pub const MAX_LINE_LEN: usize = 512;
 pub const MAX_PATH_LEN: usize = 256;
-pub const MAX_ITEMS: usize = 1024;
-pub const MAX_JOBS: usize = 16;
 pub const MAX_WATCH_PATHS: usize = 64;
 pub const MAX_TEXT_SIZE: usize = 512 * 1024; // 512KB shared text buffer
 pub const MAX_SEARCH_LEN: usize = 64;
 pub const MAX_CMD_ARGS: usize = 32;
-pub const MAX_TEST_FAILURES: usize = 64;
+pub const MAX_ERRORS: u8 = 255; // Badge numbering limit
+pub const MAX_TEST_FAILURES: u8 = 255; // Structured failure tracking limit
 
 // =============================================================================
 // Line Classification
@@ -211,10 +210,10 @@ pub const Line = struct {
 
 /// Statistics about the build output.
 pub const Stats = struct {
-    errors: u16 = 0,
+    errors: u8 = 0,
     notes: u16 = 0,
     tests_passed: u16 = 0,
-    tests_failed: u16 = 0,
+    tests_failed: u8 = 0,
 
     pub fn reset(self: *Stats) void {
         self.* = .{};

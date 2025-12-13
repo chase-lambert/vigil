@@ -162,15 +162,16 @@ pub const Parser = struct {
         // Regardless of indentation (source code at column 1 has no leading spaces)
         if (self.error_context_remaining > 0) {
             self.error_context_remaining -= 1;
-            // Check if it's actually context (not another location line or keyword)
+            // Check if it's actually context (not another location line, keyword, or test failure)
             if (std.mem.indexOf(u8, line, ": note:") == null and
                 std.mem.indexOf(u8, line, ": error:") == null and
-                !std.mem.startsWith(u8, trimmed, "referenced by:"))
+                !std.mem.startsWith(u8, trimmed, "referenced by:") and
+                !isTestFailHeader(line))
             {
                 if (isPointerLine(trimmed)) return .pointer_line;
                 return .source_line;
             }
-            // It's another location line, stop expecting context
+            // It's another location line or test failure header, stop expecting context
             self.error_context_remaining = 0;
         }
 
@@ -178,10 +179,11 @@ pub const Parser = struct {
         // We expect 2 lines after a note: source line, then pointer line
         if (self.note_context_remaining > 0) {
             self.note_context_remaining -= 1;
-            // Check if it's actually context (not another location line or keyword)
+            // Check if it's actually context (not another location line, keyword, or test failure)
             if (std.mem.indexOf(u8, line, ": note:") == null and
                 std.mem.indexOf(u8, line, ": error:") == null and
-                !std.mem.startsWith(u8, trimmed, "referenced by:"))
+                !std.mem.startsWith(u8, trimmed, "referenced by:") and
+                !isTestFailHeader(line))
             {
                 // If this context belongs to a std library frame, hide it
                 if (self.in_std_frame_context) {
@@ -190,7 +192,7 @@ pub const Parser = struct {
                 if (isPointerLine(trimmed)) return .pointer_line;
                 return .source_line;
             }
-            // It's another location line, stop expecting context
+            // It's another location line or test failure header, stop expecting context
             self.note_context_remaining = 0;
             self.in_std_frame_context = false;
         }
@@ -241,6 +243,12 @@ pub const Parser = struct {
             return .note_location;
         }
 
+        // Test failure headers: "error: 'test.name' failed: ..."
+        // Check BEFORE stack trace locations - some failures include inline stack traces
+        if (isTestFailHeader(line)) {
+            return .test_fail_header;
+        }
+
         // Stack trace location lines: "path:line:col: 0x... in function_name"
         // These appear in test failure output and have a hex address after the location
         if (isStackTraceLocation(line)) {
@@ -282,7 +290,7 @@ pub const Parser = struct {
         }
 
         // Test result patterns (order matters - check specific patterns first)
-        if (isTestFailHeader(line)) return .test_fail_header;
+        // Note: isTestFailHeader checked earlier (before stack trace locations)
         if (isTestSummaryLine(trimmed)) return .test_summary;
         if (isExpectedValueLine(line)) return .test_expected_value;
         if (isTestPassLine(trimmed)) return .test_pass;
@@ -745,6 +753,48 @@ test "classify - std library frames are marked internal" {
 
     // std library error (should be hidden in terse mode)
     try std.testing.expectEqual(LineKind.test_internal_frame, parser.classify("/home/user/.zvm/0.15.2/lib/std/testing.zig:110:17: error: msg"));
+}
+
+test "classify - test failure header not misclassified as source_line (error context)" {
+    // BUG: When error_context_remaining > 0, test failure headers were being
+    // classified as source_line because they don't contain ": error:" (with colon prefix)
+    var parser = Parser.init();
+    var report = Report.init();
+
+    // Simulate an error that sets error_context_remaining = 2
+    try parser.parseLine("src/main.zig:10:5: error: some error", &report);
+    try std.testing.expectEqual(@as(u8, 2), parser.error_context_remaining);
+
+    // The NEXT line is a test failure header - it should be recognized as such,
+    // NOT misclassified as source_line just because error_context_remaining > 0
+    try parser.parseLine("error: 'main.test.t01' failed: expected 42, found 4", &report);
+
+    // Verify it was classified correctly
+    const lines = report.lines();
+    try std.testing.expectEqual(@as(u16, 2), report.lines_len);
+    try std.testing.expectEqual(LineKind.test_fail_header, lines[1].kind);
+
+    // And verify stats counted it as a test failure, not an error
+    try std.testing.expectEqual(@as(u16, 1), report.stats.errors);
+    try std.testing.expectEqual(@as(u16, 1), report.stats.tests_failed);
+}
+
+test "classify - test failure header not misclassified as source_line (note context)" {
+    // Same bug but for note_context_remaining
+    var parser = Parser.init();
+    var report = Report.init();
+
+    // Simulate a note that sets note_context_remaining = 2
+    try parser.parseLine("src/main.zig:10:5: note: see declaration", &report);
+    try std.testing.expectEqual(@as(u8, 2), parser.note_context_remaining);
+
+    // The NEXT line is a test failure header - should NOT be misclassified
+    try parser.parseLine("error: 'main.test.t01' failed: expected 42, found 4", &report);
+
+    // Verify it was classified correctly
+    const lines = report.lines();
+    try std.testing.expectEqual(@as(u16, 2), report.lines_len);
+    try std.testing.expectEqual(LineKind.test_fail_header, lines[1].kind);
 }
 
 test "looksLikeCode" {
