@@ -4,7 +4,7 @@ A clean, fast build watcher for Zig, inspired by [Bacon](https://github.com/Cano
 
 ## Why not just use `zig build --watch`?
 
-Great question! Zig's built-in watch mode is solid and you should try it. Vigil offers a few extras if you want them:
+Good question. Zig's built-in watch mode is solid and you should try it. Vigil offers a few extras if you want them:
 
 - **Terse Mode**: Shows errors with source context, collapses verbose diagnostics
 - **Full Mode**: Toggle to see complete compiler output when needed
