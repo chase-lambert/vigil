@@ -349,13 +349,15 @@ pub const App = struct {
     }
 
     /// Cancel running build (for job switch or quit).
-    /// Kills the child process (if running) and joins the build thread.
+    /// Kills the child process group (if running) and joins the build thread.
     pub fn cancelBuild(self: *App) void {
-        // Kill child process if running - this causes collectOutput to return
+        // Kill child process GROUP if running - this causes collectOutput to return.
+        // We use -pid (negative) to kill the entire process group, not just the parent.
+        // This is critical because zig build spawns many child processes!
         const pid = self.build_child_pid.load(.acquire);
         if (pid > 0) {
-            // SIGKILL for immediate termination (zig build might spawn children)
-            std.posix.kill(@intCast(pid), std.posix.SIG.KILL) catch {};
+            // SIGKILL the entire process group (negative PID = process group)
+            std.posix.kill(-pid, std.posix.SIG.KILL) catch {};
         }
 
         // Now safe to join - child is dead, thread will exit quickly
@@ -801,9 +803,17 @@ fn runBuildCmdCancellable(
         return BuildResult{ .output = "", .exit_code = null };
     };
 
+    // Put child in its own process group so we can kill all descendants.
+    // When zig build runs, it spawns many child processes. If we only kill
+    // the parent, the children become orphaned and keep running!
+    // By making the child its own process group leader (pgid = pid),
+    // we can later kill(-pid) to terminate the entire group.
+    const child_pid: std.posix.pid_t = @intCast(child.id);
+    std.posix.setpgid(child_pid, child_pid) catch {};
+
     // Store PID atomically so main thread can kill if needed
-    // pid_t on Linux is i32, child.id is the pid
-    pid_out.store(@intCast(child.id), .release);
+    // This PID is also the PGID since we made it the group leader
+    pid_out.store(child_pid, .release);
 
     // Collect output - blocks until EOF (process exits or is killed)
     // In Zig 0.15, ArrayList is unmanaged by default - allocator passed to methods
