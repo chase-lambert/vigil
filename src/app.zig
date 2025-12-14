@@ -307,7 +307,7 @@ pub const App = struct {
             defaultBuildArgs();
 
         // Run build with cancellation support - stores PID in app.build_child_pid
-        const result = runBuildCmdCancellable(app.alloc, args, &app.build_child_pid);
+        const result = runBuildCmdCancellable(app.alloc, args, &app.build_child_pid, &app.build_error);
 
         // Store results for main thread to process
         app.build_output = result.output;
@@ -351,6 +351,16 @@ pub const App = struct {
     /// Cancel running build (for job switch or quit).
     /// Kills the child process group (if running) and joins the build thread.
     pub fn cancelBuild(self: *App) void {
+        // If thread exists but PID not yet stored, spin briefly waiting for it.
+        // This closes the race window where user quits immediately after build starts.
+        // Without this, we'd skip the kill and block on join() for the full build.
+        if (self.build_thread != null) {
+            var attempts: u8 = 0;
+            while (self.build_child_pid.load(.acquire) == 0 and attempts < 50) : (attempts += 1) {
+                std.Thread.sleep(1 * std.time.ns_per_ms); // Max 50ms total
+            }
+        }
+
         // Kill child process GROUP if running - this causes collectOutput to return.
         // We use -pid (negative) to kill the entire process group, not just the parent.
         // This is critical because zig build spawns many child processes!
@@ -785,11 +795,13 @@ fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult 
 
 /// Run a build command with cancellation support.
 /// Stores the child PID atomically so it can be killed from another thread.
+/// Sets error_out to true if spawn/collection/wait fails (not just "build had errors").
 /// Returns null output if the process was killed (cancelled).
 fn runBuildCmdCancellable(
     alloc: std.mem.Allocator,
     args: []const []const u8,
     pid_out: *std.atomic.Value(i32),
+    error_out: *std.atomic.Value(bool),
 ) BuildResult {
     assert(args.len > 0);
 
@@ -800,6 +812,7 @@ fn runBuildCmdCancellable(
     child.stderr_behavior = .Pipe;
 
     child.spawn() catch {
+        error_out.store(true, .release);
         return BuildResult{ .output = "", .exit_code = null };
     };
 
@@ -826,6 +839,7 @@ fn runBuildCmdCancellable(
         pid_out.store(0, .release);
         _ = child.wait() catch {};
         stderr_list.deinit(alloc);
+        error_out.store(true, .release);
         return BuildResult{ .output = "", .exit_code = null };
     };
 
@@ -835,6 +849,7 @@ fn runBuildCmdCancellable(
     // Reap the process
     const term = child.wait() catch {
         stderr_list.deinit(alloc);
+        error_out.store(true, .release);
         return BuildResult{ .output = "", .exit_code = null };
     };
 
@@ -844,10 +859,12 @@ fn runBuildCmdCancellable(
     };
 
     // Transfer ownership of stderr to caller
-    return BuildResult{
-        .output = stderr_list.toOwnedSlice(alloc) catch "",
-        .exit_code = exit_code,
+    const output = stderr_list.toOwnedSlice(alloc) catch {
+        // Allocation failed - must free the list's buffer to avoid leak
+        stderr_list.deinit(alloc);
+        return BuildResult{ .output = "", .exit_code = exit_code };
     };
+    return BuildResult{ .output = output, .exit_code = exit_code };
 }
 
 /// Default build command when none specified.
