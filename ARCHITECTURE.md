@@ -2,8 +2,6 @@
 
 A **build watcher for Zig** — like Bacon for Rust. Runs `zig build`, parses output, displays errors in a TUI, auto-rebuilds on file changes.
 
-See `~/projects/LLM_CODING_GUIDE.md` for general design philosophy (TigerStyle, DOD, Functional Core).
-
 ---
 
 ## Architecture Overview
