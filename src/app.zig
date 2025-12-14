@@ -84,6 +84,13 @@ pub const App = struct {
     needs_redraw: bool,
     spawn_failed: bool, // True if build command failed to spawn
 
+    // Async build state
+    build_thread: ?std.Thread = null,
+    build_output: []const u8 = "",
+    build_exit_code: ?u8 = null,
+    build_complete: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    build_error: bool = false,
+
     /// Initialize the application.
     pub fn init(alloc: std.mem.Allocator) !App {
         var app = App{
@@ -127,6 +134,12 @@ pub const App = struct {
 
     /// Clean up resources.
     pub fn deinit(self: *App) void {
+        // Cancel any running build
+        self.cancelBuild();
+        // Free any pending build output
+        if (self.build_output.len > 0) {
+            self.alloc.free(self.build_output);
+        }
         self.vx.deinit(self.alloc, self.tty.writer());
         self.tty.deinit();
     }
@@ -260,6 +273,93 @@ pub const App = struct {
         self.watcher.snapshot();
     }
 
+    /// Start a build in a background thread. Returns immediately.
+    pub fn startBuild(self: *App) void {
+        // Cancel any existing build first
+        self.cancelBuild();
+
+        self.state = .building;
+        self.build_complete.store(false, .seq_cst);
+        self.build_error = false;
+        self.spawn_failed = false;
+        self.needs_redraw = true;
+
+        // Spawn build thread
+        self.build_thread = std.Thread.spawn(.{}, buildThreadFn, .{self}) catch {
+            self.spawn_failed = true;
+            self.state = .idle;
+            return;
+        };
+    }
+
+    /// Thread function: runs build, stores result, signals completion.
+    fn buildThreadFn(app: *App) void {
+        const args = if (app.build_args_len > 0)
+            app.getBuildArgs()
+        else
+            defaultBuildArgs();
+
+        const result = runBuildCmd(app.alloc, args) catch {
+            app.build_error = true;
+            app.build_complete.store(true, .seq_cst);
+            return;
+        };
+
+        // Store results for main thread to process
+        app.build_output = result.output;
+        app.build_exit_code = result.exit_code;
+        app.build_complete.store(true, .seq_cst);
+        // Note: Don't call result.deinit() - main thread owns the output now
+    }
+
+    /// Called from event loop when build completes.
+    fn finishBuild(self: *App) void {
+        // Join thread (should be instant since it signaled complete)
+        if (self.build_thread) |thread| {
+            thread.join();
+            self.build_thread = null;
+        }
+
+        if (self.build_error) {
+            self.spawn_failed = true;
+        } else {
+            // Parse output into report
+            const rpt = self.report();
+            parse.parseOutput(self.build_output, rpt);
+            rpt.exit_code = self.build_exit_code;
+
+            // Free the output buffer
+            if (self.build_output.len > 0) {
+                self.alloc.free(self.build_output);
+            }
+            self.build_output = "";
+            self.build_exit_code = null;
+
+            self.view.reset();
+            self.watcher.snapshot();
+        }
+
+        self.state = .idle;
+        self.build_error = false;
+        self.needs_redraw = true;
+    }
+
+    /// Cancel running build (for job switch or quit).
+    pub fn cancelBuild(self: *App) void {
+        if (self.build_thread) |thread| {
+            // We can't easily kill the child process, so detach the thread.
+            // The build will finish in the background but result is ignored.
+            thread.detach();
+            self.build_thread = null;
+        }
+        // Free any pending output from previous build
+        if (self.build_output.len > 0) {
+            self.alloc.free(self.build_output);
+            self.build_output = "";
+        }
+        self.state = .idle;
+    }
+
     /// Main event loop.
     pub fn run(self: *App) !void {
         const writer = self.tty.writer();
@@ -287,18 +387,23 @@ pub const App = struct {
         // The 1 second timeout allows time for terminal to respond
         try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
 
+        // Start initial build asynchronously - TUI appears immediately
+        self.startBuild();
+
         while (self.state != .quitting) {
             // Process all pending events (non-blocking)
             while (loop.tryEvent()) |event| {
                 self.handleEvent(event);
             }
 
-            // Check for file changes (if watching)
-            if (self.watcher.checkForChanges()) {
-                self.runBuild() catch {
-                    self.spawn_failed = true;
-                    self.needs_redraw = true;
-                };
+            // Check if async build completed
+            if (self.build_complete.load(.seq_cst) and self.state == .building) {
+                self.finishBuild();
+            }
+
+            // Check for file changes (only if not already building)
+            if (self.state == .idle and self.watcher.checkForChanges()) {
+                self.startBuild();
             }
 
             // Render if needed
@@ -312,6 +417,9 @@ pub const App = struct {
             // Sleep to avoid busy-waiting
             std.Thread.sleep(16 * std.time.ns_per_ms); // ~60fps
         }
+
+        // Cleanup: cancel any running build before exit
+        self.cancelBuild();
     }
 
     /// Handle a vaxis event.
@@ -344,7 +452,10 @@ pub const App = struct {
                     self.needs_redraw = true;
                 }
             },
-            .quit => self.state = .quitting,
+            .quit => {
+                self.cancelBuild();
+                self.state = .quitting;
+            },
             .toggle_expanded => {
                 // Preserve approximate scroll position when toggling modes
                 const old_visible = self.report().getVisibleCount(self.view.expanded);
@@ -574,10 +685,8 @@ pub const App = struct {
             },
             else => return,
         }
-        self.runBuild() catch {
-            self.spawn_failed = true;
-            self.needs_redraw = true;
-        };
+        // Cancel any current build and start new one
+        self.startBuild();
     }
 
     /// Render the current state.

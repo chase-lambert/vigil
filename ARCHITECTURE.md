@@ -75,7 +75,7 @@ User runs: vigil
 │  main.zig                                              │
 │  - Parse CLI args (test/build)                         │
 │  - Create App, configure it                            │
-│  - Run initial build, start event loop                 │
+│  - Start event loop (initial build runs in background) │
 └────────────────────────────────────────────────────────┘
         │
         ▼
@@ -313,30 +313,38 @@ input.handleKey() → Action.select_job(0)
 app.handleKey() matches .select_job
      │
      ▼
-app.switchJob() → app.runBuild()
+app.switchJob() → app.startBuild()
      │
+     ├─→ cancelBuild() (if build running)
      ├─→ state = .building
-     ├─→ renderView() + flush (shows "building" badge immediately)
+     ├─→ Spawn background thread (buildThreadFn)
+     └─→ Returns immediately (non-blocking!)
+
+Meanwhile, event loop continues:
      │
-     ├─→ runBuildCmd() spawns "zig build", blocks until complete
+     ├─→ Keyboard input still processed
+     ├─→ Renders "building" badge
      │
+     ▼
+Thread completes: build_complete.store(true)
+     │
+     ▼
+Event loop sees build_complete flag
+     │
+     ▼
+app.finishBuild()
+     │
+     ├─→ thread.join()
+     ├─→ parse.parseOutput(output, &global_report)
      ├─→ state = .idle
-     │
-     ▼
-parse.parseOutput(output, &global_report)
-     │
-     ├─→ For each line: classify, store text, update stats
-     │
-     ▼
-app.needs_redraw = true
-     │
-     ▼
-Next loop iteration: render.render() draws new state
+     └─→ needs_redraw = true
 ```
 
 ---
 
 ## Main Event Loop
+
+Builds run in a background thread, keeping the UI responsive:
 
 ```zig
 pub fn run(self: *App) !void {
@@ -347,13 +355,22 @@ pub fn run(self: *App) !void {
     try self.vx.enterAltScreen(writer);
     try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
 
+    // Start initial build in background thread
+    self.startBuild();
+
     while (self.state != .quitting) {
         while (loop.tryEvent()) |event| {
             self.handleEvent(event);
         }
 
-        if (self.watcher.checkForChanges()) {
-            self.runBuild();
+        // Check if background build completed (non-blocking atomic check)
+        if (self.build_complete.load(.seq_cst) and self.state == .building) {
+            self.finishBuild();
+        }
+
+        // Only start new build when idle
+        if (self.state == .idle and self.watcher.checkForChanges()) {
+            self.startBuild();
         }
 
         if (self.needs_redraw) {
@@ -363,8 +380,12 @@ pub fn run(self: *App) !void {
 
         std.Thread.sleep(16 * std.time.ns_per_ms);  // ~60fps
     }
+
+    self.cancelBuild();  // Clean up any running build
 }
 ```
+
+**Thread safety**: `build_complete` uses `std.atomic.Value(bool)`. The thread writes results before setting the flag; the main thread reads after seeing it. No mutex needed.
 
 ---
 

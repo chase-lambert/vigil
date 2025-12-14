@@ -68,10 +68,7 @@ pub fn main() !void {
     try app.setBuildArgs(build_args_buf[0..build_args_len]);
     app.setJobName(job_name);
 
-    // Run initial build
-    try app.runBuild();
-
-    // Start the event loop
+    // Start the event loop (initial build runs asynchronously)
     try app.run();
 }
 
