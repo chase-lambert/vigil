@@ -8,34 +8,32 @@ A **build watcher for Zig** — like Bacon for Rust. Runs `zig build`, parses ou
 
 ```
 User runs: vigil
-           │
-           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  main.zig                                                   │
-│  - Parse CLI args (test/build)                              │
-│  - Create App, configure it                                 │
-│  - Run initial build, start event loop                      │
-└─────────────────────────────────────────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  app.zig - The "hub" (imperative shell)                     │
-│  - Owns App struct (vaxis, tty, view state, watcher)        │
-│  - Main event loop (keyboard, file changes, render)         │
-│  - Coordinates modules + runs zig build                     │
-└─────────────────────────────────────────────────────────────┘
-           │
-    ┌──────┼──────┬────────────┬────────────┐
-    ▼      ▼      ▼            ▼            ▼
-┌───────┐┌───────┐┌──────────┐┌────────────────┐┌─────────┐
-│types  ││parse  ││watch     ││render          ││input    │
-│.zig   ││.zig   ││.zig      ││.zig            ││.zig     │
-│       ││       ││          ││                ││         │
-│Data   ││Line   ││Poll file ││RenderContext   ││Key→     │
-│structs││class- ││mtimes,   ││VisibleLineIter││Action   │
-│       ││ifier  ││detect    ││TUI w/ libvaxis ││(pure)   │
-│       ││       ││changes   ││                ││         │
-└───────┘└───────┘└──────────┘└────────────────┘└─────────┘
+        │
+        ▼
+┌────────────────────────────────────────────────────────┐
+│  main.zig                                              │
+│  - Parse CLI args (test/build)                         │
+│  - Create App, configure it                            │
+│  - Run initial build, start event loop                 │
+└────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌────────────────────────────────────────────────────────┐
+│  app.zig - The "hub" (imperative shell)                │
+│  - Owns App struct (vaxis, tty, view state, watcher)   │
+│  - Main event loop (keyboard, file changes, render)    │
+│  - Coordinates modules + runs zig build                │
+└────────────────────────────────────────────────────────┘
+        │
+        ├────────────┬────────────┬────────────┬────────────┐
+        ▼            ▼            ▼            ▼            ▼
+┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐
+│ types.zig │ │ parse.zig │ │ watch.zig │ │render.zig │ │ input.zig │
+│           │ │           │ │           │ │           │ │           │
+│ Data      │ │ Line      │ │ Poll file │ │ Render-   │ │ Key →     │
+│ structs   │ │ classify  │ │ mtimes    │ │ Context   │ │ Action    │
+│           │ │           │ │           │ │ libvaxis  │ │ (pure)    │
+└───────────┘ └───────────┘ └───────────┘ └───────────┘ └───────────┘
 ```
 
 ---
@@ -256,12 +254,12 @@ app.handleKey() matches .select_job
      ▼
 app.switchJob() → app.runBuild()
      │
-     ├─→ is_building = true
+     ├─→ state = .building
      ├─→ renderView() + flush (shows "building" badge immediately)
      │
      ├─→ runBuildCmd() spawns "zig build", blocks until complete
      │
-     ├─→ is_building = false
+     ├─→ state = .idle
      │
      ▼
 parse.parseOutput(output, &global_report)
