@@ -81,7 +81,9 @@ Vigil uses fixed-size buffers (~740KB for parsed output). Total memory usage is 
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for design philosophy (TigerStyle, data-oriented design, functional core).
+One dependency: [libvaxis](https://github.com/rockorager/libvaxis), a great Zig TUI library.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for module details, patterns, and lessons learned.
 
 ```
 src/

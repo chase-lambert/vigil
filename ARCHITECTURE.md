@@ -4,6 +4,67 @@ A **build watcher for Zig** — like Bacon for Rust. Runs `zig build`, parses ou
 
 ---
 
+## Design Philosophy
+
+### Memory Strategy: Static First, Heap Rarely
+
+Vigil uses **static allocation** wherever possible. This means predictable memory usage, no allocator pressure during runtime, and simpler reasoning about ownership.
+
+**Three memory zones in Zig:**
+
+| Zone | Lifetime | Cleanup | Vigil Usage |
+|------|----------|---------|-------------|
+| **Static/Global** | Program lifetime | None needed | `global_report` (~740KB in .bss) |
+| **Stack** | Function scope | Automatic | `App` struct fields, temp buffers |
+| **Heap** | Manual | YOU free it | Only vaxis internals + build output |
+
+**The rule:** If you see an `Allocator` being passed, that function might heap-allocate. Think about cleanup.
+
+### TigerStyle: Explicit Limits on Everything
+
+Inspired by [TigerBeetle's style guide](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md). Every buffer has an explicit maximum:
+
+```zig
+pub const MAX_LINES: usize = 8192;
+pub const MAX_TEXT_SIZE: usize = 512 * 1024;  // 512KB
+pub const MAX_ERRORS: u8 = 255;
+```
+
+This eliminates unbounded growth, makes memory usage predictable, and catches edge cases at compile time via `comptime` assertions.
+
+### Data-Oriented Design
+
+Structures are designed for cache efficiency:
+- **Shared text buffer**: All line text lives in one contiguous 512KB buffer; `Line` structs store offsets (reduced Report from 4.4MB to 740KB)
+- **Small structs**: `Line` is ≤32 bytes (fits in cache line)
+- **Separation of data and logic**: Pure functions operate on data passed in, no hidden state
+
+### Resource Cleanup Pattern
+
+The few heap resources follow **paired init/deinit**:
+
+```zig
+// In App.init():
+app.tty = try vaxis.Tty.init(&app.tty_buf);
+errdefer app.tty.deinit();
+
+app.vx = try vaxis.Vaxis.init(alloc, .{});
+errdefer app.vx.deinit(alloc, app.tty.writer());
+
+// In App.deinit():
+self.vx.deinit(self.alloc, self.tty.writer());
+self.tty.deinit();
+```
+
+Temporary allocations (like build output) use `defer`:
+
+```zig
+var result = try runBuildCmd(self.alloc, args);
+defer result.deinit(self.alloc);  // Always freed
+```
+
+---
+
 ## Architecture Overview
 
 ```

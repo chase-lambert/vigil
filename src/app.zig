@@ -112,6 +112,9 @@ pub const App = struct {
 
         // Note: Vaxis.init no longer takes TTY - they're connected via Loop in run()
         app.vx = try vaxis.Vaxis.init(alloc, .{});
+        // Defensive errdefer: currently nothing after this can fail, but if someone
+        // adds a fallible operation later, this ensures vx gets cleaned up on error.
+        errdefer app.vx.deinit(alloc, app.tty.writer());
 
         // Set default job name
         app.setJobName("build");
