@@ -21,6 +21,7 @@ This project is also a learning exercise in [Data-Oriented Design](https://www.d
 - **Full Mode**: Toggle to see complete compiler output when needed
 - **File Watching**: Auto-rebuild on source changes (pause with `p`)
 - **Build & Test**: Switch between build (`b`) and test (`t`) with a keypress
+- **Search**: Find text in output with `/`, navigate with `n`/`N`
 
 ## Installation
 
