@@ -890,7 +890,8 @@ fn getLineColor(kind: types.LineKind, expanded: bool) vaxis.Color {
         .test_fail, .test_fail_header => colors.error_fg,
         .test_expected_value => colors.muted,
         .test_summary => colors.muted,
-        .source_line, .pointer_line, .blank => .default,
+        .pointer_line => colors.success_fg, // Green like Zig's output
+        .source_line, .blank => .default,
         // In expanded mode (full view), use muted color for filtered content.
         else => if (expanded) colors.muted else .default,
     };

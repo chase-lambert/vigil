@@ -2,6 +2,19 @@
 
 A clean, fast build watcher for Zig, inspired by [Bacon](https://github.com/Canop/bacon) for Rust.
 
+## Why not just use `zig build --watch`?
+
+Great question! Zig's built-in watch mode is solid and you should try it. Vigil offers a few extras if you want them:
+
+- **Terse mode** — Collapses `referenced by:` traces, build tree noise, and std library stack frames so you see just the errors
+- **Search** — Press `/` to search, `n`/`N` to jump between matches
+- **Job switching** — Flip between build and test with `b`/`t` without restarting
+- **Clean aesthetic** — Minimal header badges, focused error display
+
+If you just want "rebuild on save," `zig build --watch` has you covered. Vigil is for when you want a bit more control over the output.
+
+This project is also a learning exercise in [Data-Oriented Design](https://www.dataorienteddesign.com/dodbook/), [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), and Zig patterns. I have learned a ton and had a lot of fun doing it. See [ARCHITECTURE.md](ARCHITECTURE.md) for some of the details.
+
 ## Features
 
 - **Terse Mode**: Shows errors with source context, collapses verbose diagnostics
@@ -54,7 +67,7 @@ All options are passed through to `zig build`. Use `-h` for help.
 
 ## Limits & Behavior
 
-Vigil uses fixed-size buffers for predictable memory usage (~740KB):
+Vigil uses fixed-size buffers (~740KB for parsed output). Total memory usage is typically 2-5MB depending on terminal size (libvaxis scales with screen dimensions).
 
 | Limit | Value | What happens when exceeded |
 |-------|-------|---------------------------|
