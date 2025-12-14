@@ -14,6 +14,9 @@ Good question. Zig's built-in watch mode is solid and you should try it. Vigil o
 
 If you just want "rebuild on save," `zig build --watch` has you covered. Vigil is for when you want a bit more control over the output.
 
+A fun little side aspect is that I've found `vigil` works very well while going through [ziglings](https://codeberg.org/ziglings/exercises), especially when in `full` mode, but `zig build --watch` does not work correctly. Just don't try to switch to test (`t`) mode or things get funky.
+
+
 This project is also a learning exercise in [Data-Oriented Design](https://www.dataorienteddesign.com/dodbook/), [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), and Zig patterns. I have learned a ton and had a lot of fun doing it. See [ARCHITECTURE.md](ARCHITECTURE.md) for some of the details.
 
 ## Installation
@@ -21,7 +24,7 @@ This project is also a learning exercise in [Data-Oriented Design](https://www.d
 ```bash
 git clone https://github.com/chase-lambert/vigil
 cd vigil
-zig build -Doptimize=ReleaseFast
+zig build -Doptimize=ReleaseSafe
 cp zig-out/bin/vigil ~/.local/bin/
 ```
 

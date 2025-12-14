@@ -45,7 +45,7 @@ pub const RunState = enum {
 /// Classification of a single line of build output.
 /// Determines display behavior in terse vs full mode.
 pub const LineKind = enum(u8) {
-    // === Kept in terse mode ===
+    // === Shown in terse mode ===
     error_location, // "path:line:col: error: message"
     note_location, // "path:line:col: note: message"
     source_line, // indented source code snippet
@@ -55,6 +55,7 @@ pub const LineKind = enum(u8) {
     test_expected_value, // "expected X, found Y" (assertion details)
     test_summary, // "+- run test N/M passed, K failed"
     build_error, // "error: ..." without file:line:col
+    blank, // empty lines (consecutive blanks collapsed)
 
     // === Hidden in terse mode ===
     test_pass, // "test_name... OK"
@@ -64,7 +65,6 @@ pub const LineKind = enum(u8) {
     command_dump, // the massive zig build-exe command
     build_summary, // "Build Summary:" section
     final_error, // "error: the following build command failed"
-    blank, // empty lines
     other, // unknown - hide in terse to be safe
 
     /// Returns true if this line should be shown in terse (summary) mode.
@@ -83,7 +83,7 @@ pub const LineKind = enum(u8) {
             => true,
 
             .test_pass, // Hidden in terse mode
-            .test_internal_frame, // std library stack frames
+            .test_internal_frame,
             .build_tree,
             .referenced_by,
             .command_dump,
@@ -158,21 +158,18 @@ pub const TestFailure = struct {
         };
     }
 
-    /// Get the test name from the shared text buffer.
     pub fn getName(self: TestFailure, text_buf: []const u8) []const u8 {
         if (self.name_len == 0) return "";
         const end = @min(self.name_offset + self.name_len, text_buf.len);
         return text_buf[self.name_offset..end];
     }
 
-    /// Get the expected value from the shared text buffer.
     pub fn getExpected(self: TestFailure, text_buf: []const u8) []const u8 {
         if (self.expected_len == 0) return "";
         const end = @min(self.expected_offset + self.expected_len, text_buf.len);
         return text_buf[self.expected_offset..end];
     }
 
-    /// Get the actual value from the shared text buffer.
     pub fn getActual(self: TestFailure, text_buf: []const u8) []const u8 {
         if (self.actual_len == 0) return "";
         const end = @min(self.actual_offset + self.actual_len, text_buf.len);
@@ -186,20 +183,17 @@ pub const TestFailure = struct {
 
 /// A single stored line of build output.
 /// Text is NOT stored inline - it lives in the Report's shared text buffer.
-/// This reduces Line from ~536 bytes to ~16 bytes, making Report ~130KB instead of 4.4MB.
+/// This reduces Line from ~536 bytes to ~24 bytes, making Report ~700KB instead of 4.4MB.
 pub const Line = struct {
     /// Offset into the shared text buffer where this line's content starts
     text_offset: u32,
-    /// Length of this line's text
     text_len: u16,
-    /// Classification of this line
     kind: LineKind,
     /// Which item this line belongs to (for grouping)
     item_index: u16,
     /// Parsed location if applicable
     location: ?Location,
 
-    /// Get the text content of this line.
     /// Requires the Report's text buffer since text is stored there, not inline.
     pub fn getText(self: *const Line, text_buf: []const u8) []const u8 {
         // Precondition: offset must be within buffer
@@ -253,7 +247,6 @@ pub const Report = struct {
     /// All parsed lines (fixed-size buffer)
     lines_buf: [MAX_LINES]Line,
     lines_len: u16, // Max 8192 lines
-    /// Statistics
     stats: Stats,
     /// Exit code from the build command
     exit_code: ?u8,
