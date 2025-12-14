@@ -89,7 +89,9 @@ pub const App = struct {
     build_output: []const u8 = "",
     build_exit_code: ?u8 = null,
     build_complete: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    build_error: bool = false,
+    build_error: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    // Child process PID for cancellation (0 = no child running)
+    build_child_pid: std.atomic.Value(i32) = std.atomic.Value(i32).init(0),
 
     /// Initialize the application.
     pub fn init(alloc: std.mem.Allocator) !App {
@@ -275,12 +277,16 @@ pub const App = struct {
 
     /// Start a build in a background thread. Returns immediately.
     pub fn startBuild(self: *App) void {
-        // Cancel any existing build first
-        self.cancelBuild();
+        // Cancel any existing build first (no-op if already idle)
+        // Note: switchJob() calls cancelBuild() before modifying args,
+        // so this may be redundant, but it's safe and handles other callers.
+        if (self.state == .building or self.build_thread != null) {
+            self.cancelBuild();
+        }
 
         self.state = .building;
         self.build_complete.store(false, .seq_cst);
-        self.build_error = false;
+        self.build_error.store(false, .release);
         self.spawn_failed = false;
         self.needs_redraw = true;
 
@@ -294,16 +300,14 @@ pub const App = struct {
 
     /// Thread function: runs build, stores result, signals completion.
     fn buildThreadFn(app: *App) void {
+        // Read args at thread start (before any potential modification)
         const args = if (app.build_args_len > 0)
             app.getBuildArgs()
         else
             defaultBuildArgs();
 
-        const result = runBuildCmd(app.alloc, args) catch {
-            app.build_error = true;
-            app.build_complete.store(true, .seq_cst);
-            return;
-        };
+        // Run build with cancellation support - stores PID in app.build_child_pid
+        const result = runBuildCmdCancellable(app.alloc, args, &app.build_child_pid);
 
         // Store results for main thread to process
         app.build_output = result.output;
@@ -320,7 +324,7 @@ pub const App = struct {
             self.build_thread = null;
         }
 
-        if (self.build_error) {
+        if (self.build_error.load(.acquire)) {
             self.spawn_failed = true;
         } else {
             // Parse output into report
@@ -340,18 +344,29 @@ pub const App = struct {
         }
 
         self.state = .idle;
-        self.build_error = false;
+        self.build_error.store(false, .release);
         self.needs_redraw = true;
     }
 
     /// Cancel running build (for job switch or quit).
+    /// Kills the child process (if running) and joins the build thread.
     pub fn cancelBuild(self: *App) void {
+        // Kill child process if running - this causes collectOutput to return
+        const pid = self.build_child_pid.load(.acquire);
+        if (pid > 0) {
+            // SIGKILL for immediate termination (zig build might spawn children)
+            std.posix.kill(@intCast(pid), std.posix.SIG.KILL) catch {};
+        }
+
+        // Now safe to join - child is dead, thread will exit quickly
         if (self.build_thread) |thread| {
-            // We can't easily kill the child process, so detach the thread.
-            // The build will finish in the background but result is ignored.
-            thread.detach();
+            thread.join();
             self.build_thread = null;
         }
+
+        // Clear PID (thread may have already cleared it, but be safe)
+        self.build_child_pid.store(0, .release);
+
         // Free any pending output from previous build
         if (self.build_output.len > 0) {
             self.alloc.free(self.build_output);
@@ -669,6 +684,11 @@ pub const App = struct {
 
     /// Switch to a different job (build=0, test=1).
     fn switchJob(self: *App, job_idx: u8) void {
+        // Cancel current build FIRST - ensures old thread is joined
+        // before we modify build_args_buf (which it may reference)
+        self.cancelBuild();
+
+        // Now safe to modify args - old thread is gone
         switch (job_idx) {
             0 => { // build
                 self.build_args_buf[0] = "zig";
@@ -685,7 +705,7 @@ pub const App = struct {
             },
             else => return,
         }
-        // Cancel any current build and start new one
+        // Start new build (cancelBuild in startBuild will be a no-op since we're idle)
         self.startBuild();
     }
 
@@ -759,6 +779,65 @@ fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult 
             .exit_code = null,
         };
     }
+}
+
+/// Run a build command with cancellation support.
+/// Stores the child PID atomically so it can be killed from another thread.
+/// Returns null output if the process was killed (cancelled).
+fn runBuildCmdCancellable(
+    alloc: std.mem.Allocator,
+    args: []const []const u8,
+    pid_out: *std.atomic.Value(i32),
+) BuildResult {
+    assert(args.len > 0);
+
+    // Initialize child process with pipes for output capture
+    var child = std.process.Child.init(args, alloc);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+
+    child.spawn() catch {
+        return BuildResult{ .output = "", .exit_code = null };
+    };
+
+    // Store PID atomically so main thread can kill if needed
+    // pid_t on Linux is i32, child.id is the pid
+    pid_out.store(@intCast(child.id), .release);
+
+    // Collect output - blocks until EOF (process exits or is killed)
+    // In Zig 0.15, ArrayList is unmanaged by default - allocator passed to methods
+    var stdout_list: std.ArrayList(u8) = .empty;
+    var stderr_list: std.ArrayList(u8) = .empty;
+    defer stdout_list.deinit(alloc); // We only care about stderr
+
+    child.collectOutput(alloc, &stdout_list, &stderr_list, types.MAX_TEXT_SIZE) catch {
+        // Collection failed (unlikely) - clear PID and wait
+        pid_out.store(0, .release);
+        _ = child.wait() catch {};
+        stderr_list.deinit(alloc);
+        return BuildResult{ .output = "", .exit_code = null };
+    };
+
+    // Clear PID before wait - process has finished or been killed
+    pid_out.store(0, .release);
+
+    // Reap the process
+    const term = child.wait() catch {
+        stderr_list.deinit(alloc);
+        return BuildResult{ .output = "", .exit_code = null };
+    };
+
+    const exit_code: ?u8 = switch (term) {
+        .Exited => |code| code,
+        .Signal, .Stopped, .Unknown => null,
+    };
+
+    // Transfer ownership of stderr to caller
+    return BuildResult{
+        .output = stderr_list.toOwnedSlice(alloc) catch "",
+        .exit_code = exit_code,
+    };
 }
 
 /// Default build command when none specified.

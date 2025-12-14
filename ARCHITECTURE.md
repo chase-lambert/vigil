@@ -385,7 +385,12 @@ pub fn run(self: *App) !void {
 }
 ```
 
-**Thread safety**: `build_complete` uses `std.atomic.Value(bool)`. The thread writes results before setting the flag; the main thread reads after seeing it. No mutex needed.
+**Thread safety**: Uses lock-free atomics for cross-thread communication:
+- `build_complete: std.atomic.Value(bool)` — signals build finished
+- `build_child_pid: std.atomic.Value(i32)` — stores child PID for cancellation
+- `build_error: std.atomic.Value(bool)` — signals spawn/collection failure
+
+**Cancellation**: When user quits or switches jobs, `cancelBuild()` sends `SIGKILL` to the child process via the stored PID. This causes `collectOutput()` to return (pipes close), the thread exits, and the main thread safely `join()`s it. No detached threads—all resources are properly cleaned up.
 
 ---
 
