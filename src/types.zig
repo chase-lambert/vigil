@@ -251,7 +251,6 @@ pub const Report = struct {
     lines_buf: [MAX_LINES]Line,
     lines_len: u16, // Max 8192 lines
     stats: Stats,
-    /// Exit code from the build command
     exit_code: ?u8,
     /// Cached terse line count (avoids O(n) iteration on every scroll/render)
     cached_terse_count: u16, // Max 8192 lines
@@ -288,12 +287,10 @@ pub const Report = struct {
         return self.text_buf[0..self.text_len];
     }
 
-    /// Get the slice of active lines
     pub fn lines(self: *const Report) []const Line {
         return self.lines_buf[0..self.lines_len];
     }
 
-    /// Get mutable slice of active lines
     pub fn linesMut(self: *Report) []Line {
         return self.lines_buf[0..self.lines_len];
     }
@@ -324,7 +321,6 @@ pub const Report = struct {
         self.lines_len += 1;
     }
 
-    /// Get the slice of test failures
     pub fn testFailures(self: *const Report) []const TestFailure {
         return self.test_failures_buf[0..self.test_failures_len];
     }
@@ -402,7 +398,6 @@ pub const Report = struct {
 // View State
 // =============================================================================
 
-/// Current view/UI state.
 pub const ViewState = struct {
     /// Scroll position (line offset)
     scroll: u16, // Max 8192 lines
@@ -447,7 +442,6 @@ pub const ViewState = struct {
 // Watch Configuration
 // =============================================================================
 
-/// File watching configuration.
 pub const WatchConfig = struct {
     /// Paths to watch
     paths: [MAX_WATCH_PATHS][MAX_PATH_LEN]u8,

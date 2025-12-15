@@ -134,9 +134,7 @@ pub const Parser = struct {
         try report.appendLine(line);
     }
 
-    /// Classify a line based on its content.
     fn classify(self: *Parser, line: []const u8) LineKind {
-        // Empty line
         if (line.len == 0) {
             self.in_reference_block = false;
             self.note_context_remaining = 0;

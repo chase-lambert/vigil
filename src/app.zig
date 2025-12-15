@@ -39,7 +39,6 @@ fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return false;
 }
 
-/// Event type for the vaxis Loop
 pub const Event = union(enum) {
     key_press: vaxis.Key,
     winsize: vaxis.Winsize,
@@ -93,7 +92,6 @@ pub const App = struct {
     // Child process PID for cancellation (0 = no child running)
     build_child_pid: std.atomic.Value(i32) = std.atomic.Value(i32).init(0),
 
-    /// Initialize the application.
     pub fn init(alloc: std.mem.Allocator) !App {
         var app = App{
             .alloc = alloc,
@@ -125,20 +123,14 @@ pub const App = struct {
         // adds a fallible operation later, this ensures vx gets cleaned up on error.
         errdefer app.vx.deinit(alloc, app.tty.writer());
 
-        // Set default job name
         app.setJobName("build");
-
-        // Detect project name from build.zig.zon
         app.detectProject();
 
         return app;
     }
 
-    /// Clean up resources.
     pub fn deinit(self: *App) void {
-        // Cancel any running build
         self.cancelBuild();
-        // Free any pending build output
         if (self.build_output.len > 0) {
             self.alloc.free(self.build_output);
         }
@@ -152,7 +144,6 @@ pub const App = struct {
         return &global_report;
     }
 
-    /// Set the current job name for display.
     pub fn setJobName(self: *App, name: []const u8) void {
         const len = @min(name.len, self.current_job_name.len);
         @memcpy(self.current_job_name[0..len], name[0..len]);
@@ -169,7 +160,6 @@ pub const App = struct {
         return self.project_name[0..self.project_name_len];
     }
 
-    /// Get project root path.
     pub fn getProjectRoot(self: *const App) []const u8 {
         return self.project_root[0..self.project_root_len];
     }
@@ -209,7 +199,6 @@ pub const App = struct {
         }
     }
 
-    /// Extract project name from directory name as fallback.
     fn extractDirName(self: *App) void {
         if (self.project_root_len == 0) return;
         const root = self.project_root[0..self.project_root_len];
@@ -228,7 +217,6 @@ pub const App = struct {
         }
     }
 
-    /// Set build arguments.
     pub fn setBuildArgs(self: *App, args: []const []const u8) !void {
         if (args.len > types.MAX_CMD_ARGS) return error.TooManyArgs;
         for (args, 0..) |arg, i| {
@@ -237,7 +225,6 @@ pub const App = struct {
         self.build_args_len = @intCast(args.len);
     }
 
-    /// Get build arguments slice.
     pub fn getBuildArgs(self: *const App) []const []const u8 {
         return self.build_args_buf[0..self.build_args_len];
     }
@@ -390,7 +377,6 @@ pub const App = struct {
         self.state = .idle;
     }
 
-    /// Main event loop.
     pub fn run(self: *App) !void {
         const writer = self.tty.writer();
 
@@ -407,7 +393,6 @@ pub const App = struct {
         try loop.start();
         defer loop.stop();
 
-        // Enter alternate screen
         try self.vx.enterAltScreen(writer);
         // exitAltScreen in defer: if cleanup fails, we're exiting anyway
         defer self.vx.exitAltScreen(writer) catch {};
@@ -417,7 +402,7 @@ pub const App = struct {
         // The 1 second timeout allows time for terminal to respond
         try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
 
-        // Start initial build asynchronously - TUI appears immediately
+        // Build runs in background thread - TUI appears immediately
         self.startBuild();
 
         while (self.state != .quitting) {
@@ -426,7 +411,6 @@ pub const App = struct {
                 self.handleEvent(event);
             }
 
-            // Check if async build completed
             if (self.build_complete.load(.seq_cst) and self.state == .building) {
                 self.finishBuild();
             }
@@ -452,7 +436,6 @@ pub const App = struct {
         self.cancelBuild();
     }
 
-    /// Handle a vaxis event.
     fn handleEvent(self: *App, event: Event) void {
         switch (event) {
             .key_press => |key| self.handleKey(key),
@@ -465,7 +448,6 @@ pub const App = struct {
         }
     }
 
-    /// Handle a key press.
     fn handleKey(self: *App, key: vaxis.Key) void {
         const action = input.handleKey(
             key,
@@ -577,7 +559,6 @@ pub const App = struct {
         }
     }
 
-    /// Scroll up by n lines.
     fn scrollUp(self: *App, n: u16) void {
         if (self.view.scroll >= n) {
             self.view.scroll -= n;
@@ -587,7 +568,6 @@ pub const App = struct {
         self.needs_redraw = true;
     }
 
-    /// Scroll down by n lines.
     fn scrollDown(self: *App, n: u16) void {
         const max_scroll = self.getMaxScroll();
         self.view.scroll = @min(self.view.scroll + n, max_scroll);
@@ -724,7 +704,6 @@ pub const App = struct {
         self.startBuild();
     }
 
-    /// Render the current state.
     fn renderView(self: *App) void {
         render.render(&self.vx, .{
             .report = self.report(),
@@ -764,8 +743,7 @@ pub const BuildResult = struct {
     }
 };
 
-/// Run a build command and capture its output (stderr only).
-/// Zig outputs all build/test errors to stderr; stdout is unused.
+/// Zig outputs build/test errors to stderr; stdout is unused.
 fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult {
     assert(args.len > 0);
 

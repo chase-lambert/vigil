@@ -625,7 +625,6 @@ fn renderTestFailureLine(
     return rows_used;
 }
 
-/// Render the complete UI.
 pub fn render(vx: *vaxis.Vaxis, ctx: RenderContext) void {
     const win = vx.window();
     win.clear();
@@ -881,7 +880,6 @@ fn renderFooter(
     writeNumber(win, total, &col, footer_style);
 }
 
-/// Get the display color for a line type.
 fn getLineColor(kind: types.LineKind, expanded: bool) vaxis.Color {
     return switch (kind) {
         .error_location, .build_error => colors.error_fg,

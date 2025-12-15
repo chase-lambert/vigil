@@ -85,7 +85,6 @@ pub const Watcher = struct {
         }
     }
 
-    /// Toggle watching on/off.
     pub fn toggle(self: *Watcher) void {
         self.setActive(!self.active);
     }

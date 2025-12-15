@@ -30,34 +30,13 @@ pub const Action = union(enum) {
     select_job: u8, // Job index 0-2
 };
 
-/// Process a key event in normal mode.
 pub fn handleNormalMode(key: vaxis.Key) Action {
-    // Quit
-    if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) {
-        return .quit;
-    }
+    if (key.matches('q', .{}) or key.matches('c', .{ .ctrl = true })) return .quit;
+    if (key.matches('?', .{}) or key.matches('h', .{})) return .show_help;
+    if (key.matches(' ', .{}) or key.matches(vaxis.Key.tab, .{})) return .toggle_expanded;
+    if (key.matches('p', .{})) return .toggle_watch;
+    if (key.matches('w', .{})) return .toggle_wrap;
 
-    // Help
-    if (key.matches('?', .{}) or key.matches('h', .{})) {
-        return .show_help;
-    }
-
-    // Toggle view mode
-    if (key.matches(' ', .{}) or key.matches(vaxis.Key.tab, .{})) {
-        return .toggle_expanded;
-    }
-
-    // Toggle watching (pause/resume)
-    if (key.matches('p', .{})) {
-        return .toggle_watch;
-    }
-
-    // Toggle line wrap
-    if (key.matches('w', .{})) {
-        return .toggle_wrap;
-    }
-
-    // Scrolling
     if (key.matches('j', .{}) or key.matches(vaxis.Key.down, .{})) {
         return .scroll_down;
     }
@@ -77,26 +56,17 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
         return .scroll_bottom;
     }
 
-    // Search
-    if (key.matches('/', .{})) {
-        return .start_search;
-    }
-    if (key.matches('n', .{})) {
-        return .next_match;
-    }
-    if (key.matches('N', .{}) or key.matches('n', .{ .shift = true })) {
-        return .prev_match;
-    }
+    if (key.matches('/', .{})) return .start_search;
+    if (key.matches('n', .{})) return .next_match;
+    if (key.matches('N', .{}) or key.matches('n', .{ .shift = true })) return .prev_match;
 
-    // Job shortcuts
     const cp = key.codepoint;
-    if (cp == 'b') return .{ .select_job = 0 }; // build
-    if (cp == 't') return .{ .select_job = 1 }; // test
+    if (cp == 'b') return .{ .select_job = 0 };
+    if (cp == 't') return .{ .select_job = 1 };
 
     return .none;
 }
 
-/// Process a key event in help mode.
 pub fn handleHelpMode(key: vaxis.Key) Action {
     if (key.matches('q', .{}) or
         key.matches(vaxis.Key.escape, .{}) or
@@ -108,29 +78,17 @@ pub fn handleHelpMode(key: vaxis.Key) Action {
     return .none;
 }
 
-/// Process a key event in search mode.
 pub fn handleSearchMode(key: vaxis.Key, search_buf: *[types.MAX_SEARCH_LEN]u8, search_len: *u8) Action {
-    // Cancel
-    if (key.matches(vaxis.Key.escape, .{})) {
-        return .cancel;
-    }
+    if (key.matches(vaxis.Key.escape, .{})) return .cancel;
+    if (key.matches(vaxis.Key.enter, .{})) return .confirm;
 
-    // Confirm
-    if (key.matches(vaxis.Key.enter, .{})) {
-        return .confirm;
-    }
-
-    // Backspace
     if (key.matches(vaxis.Key.backspace, .{})) {
-        if (search_len.* > 0) {
-            search_len.* -= 1;
-        }
+        if (search_len.* > 0) search_len.* -= 1;
         return .none;
     }
 
-    // Character input
     const cp = key.codepoint;
-    if (cp >= 32 and cp < 127) { // Printable ASCII
+    if (cp >= 32 and cp < 127) {
         if (search_len.* < types.MAX_SEARCH_LEN) {
             search_buf[search_len.*] = @intCast(cp);
             search_len.* += 1;
@@ -140,7 +98,6 @@ pub fn handleSearchMode(key: vaxis.Key, search_buf: *[types.MAX_SEARCH_LEN]u8, s
     return .none;
 }
 
-/// Dispatch to the appropriate handler based on current mode.
 pub fn handleKey(
     key: vaxis.Key,
     mode: types.ViewState.Mode,
