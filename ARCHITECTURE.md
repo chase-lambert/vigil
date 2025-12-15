@@ -387,10 +387,16 @@ pub fn run(self: *App) !void {
 
 **Thread safety**: Uses lock-free atomics for cross-thread communication:
 - `build_complete: std.atomic.Value(bool)` — signals build finished
-- `build_child_pid: std.atomic.Value(i32)` — stores child PID for cancellation
-- `build_error: std.atomic.Value(bool)` — signals spawn/collection failure
+- `build_child_pid: std.atomic.Value(i32)` — stores child PID/PGID for cancellation
+- `build_error: std.atomic.Value(bool)` — set by worker on spawn/collect/wait failures
 
-**Cancellation**: When user quits or switches jobs, `cancelBuild()` sends `SIGKILL` to the child process via the stored PID. This causes `collectOutput()` to return (pipes close), the thread exits, and the main thread safely `join()`s it. No detached threads—all resources are properly cleaned up.
+**Process group cancellation**: `zig build` spawns many child processes. Killing only the parent leaves orphans running! The solution:
+1. After `spawn()`, call `setpgid(pid, pid)` to make child its own process group leader
+2. On cancel, `kill(-pid, SIGKILL)` kills the entire process group (negative PID = group)
+
+**PID race mitigation**: If user quits immediately after build starts, the worker thread may not have stored the PID yet. `cancelBuild()` spins up to `CANCEL_PID_WAIT_MS` (50ms) waiting for PID. If still not available, we proceed to `join()` which may block. In practice, `spawn()` completes in microseconds.
+
+**Invariant**: `switchJob()` must call `cancelBuild()` before modifying `build_args_buf`. The worker thread reads args at start; if we modified them while running, we'd get use-after-free or garbage args.
 
 ---
 

@@ -23,6 +23,9 @@ pub const MAX_CMD_ARGS: usize = 32;
 pub const MAX_ERRORS: u8 = 255; // Badge numbering limit
 pub const MAX_TEST_FAILURES: u8 = 255; // Structured failure tracking limit
 
+// Threading limits
+pub const CANCEL_PID_WAIT_MS: u8 = 50; // Max wait for child PID during cancel
+
 // =============================================================================
 // App Run State (FSM)
 // =============================================================================

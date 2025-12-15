@@ -353,11 +353,14 @@ pub const App = struct {
     pub fn cancelBuild(self: *App) void {
         // If thread exists but PID not yet stored, spin briefly waiting for it.
         // This closes the race window where user quits immediately after build starts.
-        // Without this, we'd skip the kill and block on join() for the full build.
+        // CANCEL_PID_WAIT_MS is a pragmatic upper bound; if we still haven't observed
+        // the PID after this, we proceed to join() which may block until the build
+        // exits naturally. In practice, PID publication happens almost immediately
+        // after spawn().
         if (self.build_thread != null) {
             var attempts: u8 = 0;
-            while (self.build_child_pid.load(.acquire) == 0 and attempts < 50) : (attempts += 1) {
-                std.Thread.sleep(1 * std.time.ns_per_ms); // Max 50ms total
+            while (self.build_child_pid.load(.acquire) == 0 and attempts < types.CANCEL_PID_WAIT_MS) : (attempts += 1) {
+                std.Thread.sleep(1 * std.time.ns_per_ms);
             }
         }
 
