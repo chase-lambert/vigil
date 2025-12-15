@@ -256,7 +256,7 @@ pub const Report = struct {
     cached_terse_count: u16, // Max 8192 lines
     /// Test failure details for structured display
     test_failures_buf: [MAX_TEST_FAILURES]TestFailure,
-    test_failures_len: u8, // Max 64 failures
+    test_failures_len: u8, // Max 255 failures
 
     pub fn init() Report {
         return .{

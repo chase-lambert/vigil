@@ -696,7 +696,7 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
     writeChar(win, ' ', &col, project_bg, white);
     col += 1; // Gap
 
-    // 2. Job name: " build " / " test " / " run "
+    // 2. Job name: " build " / " test "
     writeChar(win, ' ', &col, job_bg, white);
     for (job_name) |c| writeChar(win, c, &col, job_bg, white);
     writeChar(win, ' ', &col, job_bg, white);

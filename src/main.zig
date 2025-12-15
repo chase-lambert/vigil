@@ -45,12 +45,6 @@ pub fn main() !void {
                 build_args_buf[build_args_len] = "test";
                 build_args_len += 1;
             }
-        } else if (std.mem.eql(u8, arg, "run")) {
-            if (build_args_len == 2) {
-                job_name = "run";
-                build_args_buf[build_args_len] = "run";
-                build_args_len += 1;
-            }
         } else {
             // Pass through to zig build
             if (build_args_len < types.MAX_CMD_ARGS) {
