@@ -930,3 +930,54 @@ test "parseZonName - name with underscores" {
     try std.testing.expect(name != null);
     try std.testing.expectEqualStrings("my_cool_project", name.?);
 }
+
+// =============================================================================
+// containsIgnoreCase Tests
+// =============================================================================
+
+test "containsIgnoreCase - empty needle always matches" {
+    // Empty search query matches everything (standard behavior for incremental search)
+    try std.testing.expect(containsIgnoreCase("hello", ""));
+    try std.testing.expect(containsIgnoreCase("", ""));
+}
+
+test "containsIgnoreCase - needle longer than haystack" {
+    // Can't find a 5-char needle in a 3-char haystack
+    try std.testing.expect(!containsIgnoreCase("abc", "abcde"));
+}
+
+test "containsIgnoreCase - case insensitivity" {
+    // The core functionality: case shouldn't matter
+    try std.testing.expect(containsIgnoreCase("Hello World", "hello"));
+    try std.testing.expect(containsIgnoreCase("Hello World", "WORLD"));
+    try std.testing.expect(containsIgnoreCase("Hello World", "LO WO")); // Mixed case in middle
+    try std.testing.expect(containsIgnoreCase("ERROR", "error"));
+    try std.testing.expect(containsIgnoreCase("error", "ERROR"));
+}
+
+test "containsIgnoreCase - match positions" {
+    const haystack = "the quick brown fox";
+    // Match at start
+    try std.testing.expect(containsIgnoreCase(haystack, "the"));
+    // Match in middle
+    try std.testing.expect(containsIgnoreCase(haystack, "quick"));
+    // Match at end
+    try std.testing.expect(containsIgnoreCase(haystack, "fox"));
+    // Spanning word boundary
+    try std.testing.expect(containsIgnoreCase(haystack, "k bro"));
+}
+
+test "containsIgnoreCase - no match" {
+    try std.testing.expect(!containsIgnoreCase("hello world", "xyz"));
+    try std.testing.expect(!containsIgnoreCase("hello world", "worlds")); // Partial at end
+    try std.testing.expect(!containsIgnoreCase("abc", "abcd")); // Would extend past end
+}
+
+test "containsIgnoreCase - real search scenarios" {
+    // Realistic error message searches
+    const error_line = "src/main.zig:42:13: error: expected type 'u32'";
+    try std.testing.expect(containsIgnoreCase(error_line, "error"));
+    try std.testing.expect(containsIgnoreCase(error_line, "MAIN.ZIG"));
+    try std.testing.expect(containsIgnoreCase(error_line, "u32"));
+    try std.testing.expect(!containsIgnoreCase(error_line, "warning"));
+}

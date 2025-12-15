@@ -528,3 +528,167 @@ test "Report.init" {
     const report = Report.init();
     try std.testing.expectEqual(@as(u16, 0), report.lines_len);
 }
+
+test "Report.appendText - basic storage and retrieval" {
+    var report = Report.init();
+
+    // Append text and verify it's stored correctly
+    const info = try report.appendText("hello world");
+    try std.testing.expectEqual(@as(u32, 0), info.offset);
+    try std.testing.expectEqual(@as(u16, 11), info.len);
+
+    // Verify the text is actually in the buffer
+    try std.testing.expectEqualStrings("hello world", report.textBuf()[info.offset..][0..info.len]);
+}
+
+test "Report.appendText - multiple appends track offset correctly" {
+    var report = Report.init();
+
+    // First append starts at 0
+    const first = try report.appendText("first");
+    try std.testing.expectEqual(@as(u32, 0), first.offset);
+
+    // Second append starts right after first
+    const second = try report.appendText("second");
+    try std.testing.expectEqual(@as(u32, 5), second.offset); // "first" is 5 bytes
+
+    // Third append continues from there
+    const third = try report.appendText("third");
+    try std.testing.expectEqual(@as(u32, 11), third.offset); // "first" + "second" = 11 bytes
+
+    // Verify all text is contiguous and correct
+    try std.testing.expectEqualStrings("firstsecondthird", report.textBuf());
+}
+
+test "Report.appendText - truncates at MAX_LINE_LEN" {
+    var report = Report.init();
+
+    // Create a line longer than MAX_LINE_LEN (512)
+    var long_line: [600]u8 = undefined;
+    for (&long_line) |*c| c.* = 'x';
+
+    const info = try report.appendText(&long_line);
+
+    // Should be truncated to MAX_LINE_LEN
+    try std.testing.expectEqual(@as(u16, MAX_LINE_LEN), info.len);
+    try std.testing.expectEqual(@as(u32, MAX_LINE_LEN), report.text_len);
+}
+
+test "Report.appendText - returns error when buffer full" {
+    var report = Report.init();
+
+    // Fill most of the buffer (leave room for a small append)
+    var big_text: [MAX_LINE_LEN]u8 = undefined;
+    for (&big_text) |*c| c.* = 'x';
+
+    // Keep appending until we're close to MAX_TEXT_SIZE
+    const iterations = (MAX_TEXT_SIZE / MAX_LINE_LEN) - 1;
+    var i: usize = 0;
+    while (i < iterations) : (i += 1) {
+        _ = try report.appendText(&big_text);
+    }
+
+    // Now buffer should have some space but not enough for another MAX_LINE_LEN
+    // Try to append something that would overflow
+    const remaining = MAX_TEXT_SIZE - report.text_len;
+    var overflow_text: [MAX_LINE_LEN]u8 = undefined;
+    for (&overflow_text) |*c| c.* = 'y';
+
+    if (remaining < MAX_LINE_LEN) {
+        // Should fail because even truncated, we're past the limit
+        const result = report.appendText(&overflow_text);
+        try std.testing.expectError(error.TextBufferFull, result);
+    }
+}
+
+test "Report.appendText - empty text works" {
+    var report = Report.init();
+
+    const info = try report.appendText("");
+    try std.testing.expectEqual(@as(u32, 0), info.offset);
+    try std.testing.expectEqual(@as(u16, 0), info.len);
+    try std.testing.expectEqual(@as(u32, 0), report.text_len);
+}
+
+// =============================================================================
+// Report.computeTerseCount Tests
+// =============================================================================
+
+test "Report.computeTerseCount - empty report" {
+    var report = Report.init();
+    report.computeTerseCount();
+    try std.testing.expectEqual(@as(u16, 0), report.cached_terse_count);
+}
+
+test "Report.computeTerseCount - all visible lines" {
+    var report = Report.init();
+
+    // Add lines that are all visible in terse mode
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .error_location, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .source_line, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .pointer_line, .item_index = 0, .location = null });
+
+    report.computeTerseCount();
+    try std.testing.expectEqual(@as(u16, 3), report.cached_terse_count);
+}
+
+test "Report.computeTerseCount - filters hidden line types" {
+    var report = Report.init();
+
+    // Mix of visible and hidden lines
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .error_location, .item_index = 0, .location = null }); // visible
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .build_tree, .item_index = 0, .location = null }); // hidden
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .source_line, .item_index = 0, .location = null }); // visible
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .referenced_by, .item_index = 0, .location = null }); // hidden
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .command_dump, .item_index = 0, .location = null }); // hidden
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .note_location, .item_index = 0, .location = null }); // visible
+
+    report.computeTerseCount();
+    try std.testing.expectEqual(@as(u16, 3), report.cached_terse_count);
+}
+
+test "Report.computeTerseCount - collapses consecutive blanks" {
+    var report = Report.init();
+
+    // error, blank, blank, blank, source
+    // Should count as: error, ONE blank, source = 3
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .error_location, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .source_line, .item_index = 0, .location = null });
+
+    report.computeTerseCount();
+    try std.testing.expectEqual(@as(u16, 3), report.cached_terse_count);
+}
+
+test "Report.computeTerseCount - non-consecutive blanks count separately" {
+    var report = Report.init();
+
+    // error, blank, source, blank, pointer
+    // Blanks are separated by source, so both count = 5
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .error_location, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .source_line, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .pointer_line, .item_index = 0, .location = null });
+
+    report.computeTerseCount();
+    try std.testing.expectEqual(@as(u16, 5), report.cached_terse_count);
+}
+
+test "Report.computeTerseCount - hidden lines between blanks break collapse" {
+    var report = Report.init();
+
+    // blank, build_tree (hidden), blank
+    // Even though build_tree is hidden, it separates the blanks in the raw sequence
+    // But since we only look at visible lines, consecutive visible blanks collapse
+    // Let's verify: blank -> (skip build_tree) -> blank = consecutive visible blanks = 1
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .build_tree, .item_index = 0, .location = null });
+    try report.appendLine(.{ .text_offset = 0, .text_len = 0, .kind = .blank, .item_index = 0, .location = null });
+
+    report.computeTerseCount();
+    // Both blanks are visible and consecutive (hidden lines skipped), so collapsed to 1
+    try std.testing.expectEqual(@as(u16, 1), report.cached_terse_count);
+}

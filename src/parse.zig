@@ -799,6 +799,46 @@ test "looksLikeCode" {
 }
 
 // =============================================================================
+// isStackTraceLocation Tests
+// =============================================================================
+
+test "isStackTraceLocation - valid stack trace line" {
+    // Real stack trace format from test failures
+    const line = "/home/user/project/src/main.zig:26:5: 0x10356a8 in test.this test will fail";
+    try std.testing.expect(isStackTraceLocation(line));
+}
+
+test "isStackTraceLocation - std library stack frame" {
+    // std library frames are also stack traces (hidden in terse mode)
+    const line = "/home/user/.zvm/0.15.0/lib/std/testing.zig:540:17: 0x1035a90 in expectEqual__struct";
+    try std.testing.expect(isStackTraceLocation(line));
+}
+
+test "isStackTraceLocation - regular error line is not stack trace" {
+    // Error lines have ": error:" not ": 0x"
+    const line = "src/main.zig:42:13: error: expected type 'u32', found 'bool'";
+    try std.testing.expect(!isStackTraceLocation(line));
+}
+
+test "isStackTraceLocation - note line is not stack trace" {
+    // Note lines have ": note:" not ": 0x"
+    const line = "src/main.zig:10:5: note: 'is_valid' declared here";
+    try std.testing.expect(!isStackTraceLocation(line));
+}
+
+test "isStackTraceLocation - non-zig file is not stack trace" {
+    // Must have .zig: to be considered
+    const line = "/some/path/file.txt:10:5: 0x123 in something";
+    try std.testing.expect(!isStackTraceLocation(line));
+}
+
+test "isStackTraceLocation - zig in path but no address" {
+    // Has .zig: but missing the 0x address pattern
+    const line = "/path/to/file.zig:10:5: some other content";
+    try std.testing.expect(!isStackTraceLocation(line));
+}
+
+// =============================================================================
 // Golden Fixture Tests
 // =============================================================================
 

@@ -1111,3 +1111,60 @@ test "VisibleLineIterator - scroll handling" {
 
     try std.testing.expect(iter.next() == null);
 }
+
+// =============================================================================
+// cleanStackTraceLine Tests
+// =============================================================================
+
+test "cleanStackTraceLine - strips project root prefix" {
+    const line = "/home/user/projects/vigil/src/main.zig:26:5: 0x10356a8 in test.name";
+    const project_root = "/home/user/projects/vigil";
+
+    const result = cleanStackTraceLine(line, project_root);
+    try std.testing.expectEqualStrings("src/main.zig:26:5", result);
+}
+
+test "cleanStackTraceLine - strips memory address without project root" {
+    // When project root doesn't match, falls back to src/ detection
+    const line = "/different/path/src/main.zig:42:13: 0xabc123 in function_name";
+    const project_root = "/home/user/projects/vigil";
+
+    const result = cleanStackTraceLine(line, project_root);
+    try std.testing.expectEqualStrings("src/main.zig:42:13", result);
+}
+
+test "cleanStackTraceLine - empty project root uses src/ fallback" {
+    const line = "/some/path/src/lib.zig:10:5: 0xdef456 in helper";
+    const project_root = "";
+
+    const result = cleanStackTraceLine(line, project_root);
+    try std.testing.expectEqualStrings("src/lib.zig:10:5", result);
+}
+
+test "cleanStackTraceLine - no src/ falls back to stripping address only" {
+    // Line without "src/" in path - just strips the memory address part
+    const line = "/usr/lib/zig/std/testing.zig:540:17: 0x1035a90 in expectEqual";
+    const project_root = "/home/user/project";
+
+    const result = cleanStackTraceLine(line, project_root);
+    try std.testing.expectEqualStrings("/usr/lib/zig/std/testing.zig:540:17", result);
+}
+
+test "cleanStackTraceLine - no memory address returns full path" {
+    // Line without ": 0x" pattern - returns as-is (edge case)
+    const line = "src/main.zig:26:5: note: see declaration";
+    const project_root = "";
+
+    const result = cleanStackTraceLine(line, project_root);
+    // No ": 0x" to strip, no project root, but "src/" found
+    try std.testing.expectEqualStrings("src/main.zig:26:5: note: see declaration", result);
+}
+
+test "cleanStackTraceLine - project root with trailing content" {
+    // Project root matches as prefix, strips correctly
+    const line = "/home/user/vigil/src/app.zig:100:1: 0x999 in run";
+    const project_root = "/home/user/vigil";
+
+    const result = cleanStackTraceLine(line, project_root);
+    try std.testing.expectEqualStrings("src/app.zig:100:1", result);
+}
