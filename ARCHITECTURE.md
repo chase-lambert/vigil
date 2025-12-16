@@ -124,7 +124,6 @@ pub const MAX_LINE_LEN: usize = 512; // Single line truncation
 pub const MAX_TEXT_SIZE: usize = 512 * 1024; // 512KB shared text buffer
 pub const MAX_ERRORS: u8 = 255; // Numbered error badges
 pub const MAX_TEST_FAILURES: u8 = 255; // Structured test failure tracking
-pub const MAX_WATCH_PATHS: usize = 64; // Root directories to watch
 ```
 
 **`LineKind` — Classification enum:**
@@ -183,7 +182,7 @@ Hand-written matchers classify each line of `zig build` output.
 
 ### `watch.zig` — File Watching
 
-Polling-based watcher with debouncing. Uses iterative stack-based traversal (not recursion) to find newest mtime in directories up to 8 levels deep.
+Polling-based watcher with debouncing. Always watches current directory `"."` recursively. Uses iterative stack-based traversal (not recursion) to find newest mtime in directories up to 16 levels deep.
 
 ### `render.zig` — TUI Drawing
 

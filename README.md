@@ -68,7 +68,7 @@ All options are passed through to `zig build`. Use `-h` for help.
 
 ## Limits & Behavior
 
-Vigil uses fixed-size buffers (~740KB for parsed output). Total memory usage is typically 2-5MB depending on terminal size (libvaxis scales with screen dimensions).
+Vigil uses fixed-size buffers (~740KB for parsed output). Total memory usage is typically 2-5MB depending on terminal size (libvaxis scales with screen dimensions). I'm genuinely curious about if these limits hold up to real world usage from others.
 
 | Limit | Value | What happens when exceeded |
 |-------|-------|---------------------------|
@@ -77,8 +77,7 @@ Vigil uses fixed-size buffers (~740KB for parsed output). Total memory usage is 
 | Line length | 512 chars | Truncated |
 | Numbered errors | 255 | Capped at `[255]` badges |
 | Test failures | 255 | Structured display stops |
-| Watch paths | 64 | Extra paths ignored |
-| Watch depth | 8 levels | Deeper directories not watched |
+| Watch depth | 16 levels | Deeper directories not watched |
 
 **File watching:** Vigil watches the entire project directory. Hidden dirs, `zig-out`, `zig-cache`, `node_modules`, `vendor`, and `third_party` are ignored.
 

@@ -11,6 +11,7 @@ const assert = std.debug.assert;
 /// File watcher using simple polling.
 ///
 /// Checks file modification times periodically to detect changes.
+/// Always watches current directory "." recursively.
 /// This is less efficient than OS-native watching but works everywhere
 /// and is simple to implement correctly.
 pub const Watcher = struct {
@@ -18,17 +19,16 @@ pub const Watcher = struct {
     config: types.WatchConfig,
     /// Last check timestamp (nanoseconds)
     last_check: i128,
-    /// Last known modification times
-    mtimes: [types.MAX_WATCH_PATHS]i128,
+    /// Last known modification time for watched directory
+    mtime: i128,
     /// Whether watching is currently active
     active: bool,
 
     pub fn init(config: types.WatchConfig) Watcher {
-        assert(config.paths_count <= types.MAX_WATCH_PATHS);
         const self = Watcher{
             .config = config,
             .last_check = 0,
-            .mtimes = [_]i128{0} ** types.MAX_WATCH_PATHS,
+            .mtime = 0,
             .active = config.enabled,
         };
         assert(self.last_check == 0);
@@ -52,30 +52,19 @@ pub const Watcher = struct {
         }
         self.last_check = now;
 
-        // Check each watched path
-        var changed = false;
-        var i: u8 = 0;
-        while (i < self.config.paths_count) : (i += 1) {
-            const path = self.config.getPath(i);
-            const new_mtime = getPathMtime(path);
-
-            if (new_mtime > self.mtimes[i]) {
-                self.mtimes[i] = new_mtime;
-                changed = true;
-            }
+        // Check current directory recursively
+        const new_mtime = getPathMtime(".");
+        if (new_mtime > self.mtime) {
+            self.mtime = new_mtime;
+            return true;
         }
-
-        return changed;
+        return false;
     }
 
-    /// Initialize modification times for all watched paths.
+    /// Snapshot current modification time.
     /// Call this after a build completes to avoid immediate re-trigger.
     pub fn snapshot(self: *Watcher) void {
-        var i: u8 = 0;
-        while (i < self.config.paths_count) : (i += 1) {
-            const path = self.config.getPath(i);
-            self.mtimes[i] = getPathMtime(path);
-        }
+        self.mtime = getPathMtime(".");
         self.last_check = std.time.nanoTimestamp();
     }
 
@@ -95,7 +84,7 @@ pub const Watcher = struct {
 };
 
 /// Maximum depth for directory watching
-const MAX_WATCH_DEPTH: usize = 8;
+const MAX_WATCH_DEPTH: usize = 16;
 
 /// Entry in the directory traversal stack
 const DirStackEntry = struct {

@@ -16,7 +16,6 @@ const assert = std.debug.assert;
 pub const MAX_LINES: usize = 8192;
 pub const MAX_LINE_LEN: usize = 512;
 pub const MAX_PATH_LEN: usize = 256;
-pub const MAX_WATCH_PATHS: usize = 64;
 pub const MAX_TEXT_SIZE: usize = 512 * 1024; // 512KB shared text buffer
 pub const MAX_SEARCH_LEN: usize = 64;
 pub const MAX_CMD_ARGS: usize = 32;
@@ -442,50 +441,16 @@ pub const ViewState = struct {
 // Watch Configuration
 // =============================================================================
 
+/// Configuration for file watching.
+/// Always watches current directory "." recursively.
 pub const WatchConfig = struct {
-    /// Paths to watch
-    paths: [MAX_WATCH_PATHS][MAX_PATH_LEN]u8,
-    paths_lens: [MAX_WATCH_PATHS]u8,
-    paths_count: u8,
     /// Debounce time in milliseconds
     debounce_ms: u32,
     /// Whether watching is enabled
     enabled: bool,
 
-    const DEFAULT_WATCH_PATHS = [_][]const u8{"."};
-
-    // Prove at comptime that defaults can't overflow
-    comptime {
-        assert(DEFAULT_WATCH_PATHS.len <= MAX_WATCH_PATHS);
-    }
-
     pub fn init() WatchConfig {
-        var config = WatchConfig{
-            .paths = undefined,
-            .paths_lens = undefined,
-            .paths_count = 0,
-            .debounce_ms = 100,
-            .enabled = true,
-        };
-        // Default paths - comptime-verified to fit
-        for (DEFAULT_WATCH_PATHS) |path| {
-            config.addPath(path) catch unreachable; // Proven safe by comptime assert
-        }
-        return config;
-    }
-
-    pub fn addPath(self: *WatchConfig, path: []const u8) !void {
-        if (self.paths_count >= MAX_WATCH_PATHS) return error.TooManyPaths;
-        const idx = self.paths_count;
-        const copy_len = @min(path.len, MAX_PATH_LEN);
-        @memcpy(self.paths[idx][0..copy_len], path[0..copy_len]);
-        self.paths_lens[idx] = @intCast(copy_len);
-        self.paths_count += 1;
-    }
-
-    pub fn getPath(self: *const WatchConfig, idx: usize) []const u8 {
-        assert(idx < self.paths_count);
-        return self.paths[idx][0..self.paths_lens[idx]];
+        return .{ .debounce_ms = 100, .enabled = true };
     }
 };
 
