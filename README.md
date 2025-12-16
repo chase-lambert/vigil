@@ -30,6 +30,8 @@ cp zig-out/bin/vigil ~/.local/bin/
 
 **Why ReleaseSafe?** Part of my goal with this project was to practice TigerStyle, so I use a lot of assertions throughout the codebase. These remain active in `ReleaseSafe`. You'd lose them with `ReleaseFast`, but the codebase should be considered safe without them too.
 
+**Platform support:** I develop on Linux, and a friend confirmed it works on his Mac. Curious if it works out of the box on Windows — let me know!
+
 ## Usage
 
 ```bash
