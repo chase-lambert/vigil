@@ -6,6 +6,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const types = @import("types.zig");
+const assert = std.debug.assert;
 
 // =============================================================================
 // Render Context (bundles parameters to avoid pass-through smell)
@@ -49,7 +50,7 @@ pub const VisibleLineIterator = struct {
     };
 
     pub fn init(report: *const types.Report, view: *const types.ViewState) VisibleLineIterator {
-        return .{
+        const self = VisibleLineIterator{
             .report = report,
             .expanded = view.expanded,
             .scroll = view.scroll,
@@ -57,6 +58,10 @@ pub const VisibleLineIterator = struct {
             .visible_count = 0,
             .prev_blank = false,
         };
+        // Iterator starts at beginning
+        assert(self.line_index == 0);
+        assert(self.visible_count == 0);
+        return self;
     }
 
     pub fn next(self: *VisibleLineIterator) ?Item {
@@ -85,10 +90,13 @@ pub const VisibleLineIterator = struct {
             }
             self.visible_count += 1;
 
-            return Item{
+            const item = Item{
                 .line = line,
                 .line_index = @intCast(idx),
             };
+            // Returned index is within bounds
+            assert(item.line_index < lines.len);
+            return item;
         }
 
         return null;
@@ -403,6 +411,7 @@ fn countErrorsUpTo(report: *const types.Report, line_index: u16) u8 {
             if (count < types.MAX_ERRORS) count += 1;
         }
     }
+    assert(count <= types.MAX_ERRORS);
     return count;
 }
 

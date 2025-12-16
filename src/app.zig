@@ -113,7 +113,6 @@ pub const App = struct {
             .spawn_failed = false,
         };
 
-        // Initialize TTY with our static buffer
         app.tty = try vaxis.Tty.init(&app.tty_buf);
         errdefer app.tty.deinit();
 
@@ -249,7 +248,6 @@ pub const App = struct {
         var result = try runBuildCmd(self.alloc, args);
         defer result.deinit(self.alloc);
 
-        // Parse the output into the global report
         const rpt = self.report();
         parse.parseOutput(result.output, rpt);
         rpt.exit_code = result.exit_code;
@@ -271,6 +269,9 @@ pub const App = struct {
             self.cancelBuild();
         }
 
+        // Must have build args configured
+        assert(self.build_args_len > 0);
+
         self.state = .building;
         self.build_complete.store(false, .seq_cst);
         self.build_error.store(false, .release);
@@ -283,6 +284,10 @@ pub const App = struct {
             self.state = .idle;
             return;
         };
+
+        // Thread spawned successfully
+        assert(self.state == .building);
+        assert(self.build_thread != null);
     }
 
     /// Thread function: runs build, stores result, signals completion.
@@ -333,6 +338,10 @@ pub const App = struct {
         self.state = .idle;
         self.build_error.store(false, .release);
         self.needs_redraw = true;
+
+        // Build finished - thread joined, idle state
+        assert(self.build_thread == null);
+        assert(self.state == .idle);
     }
 
     /// Cancel running build (for job switch or quit).
@@ -375,6 +384,11 @@ pub const App = struct {
             self.build_output = "";
         }
         self.state = .idle;
+
+        // Cancellation complete - no thread, no child, idle state
+        assert(self.build_thread == null);
+        assert(self.build_child_pid.load(.acquire) == 0);
+        assert(self.state == .idle);
     }
 
     pub fn run(self: *App) !void {
@@ -415,12 +429,10 @@ pub const App = struct {
                 self.finishBuild();
             }
 
-            // Check for file changes (only if not already building)
             if (self.state == .idle and self.watcher.checkForChanges()) {
                 self.startBuild();
             }
 
-            // Render if needed
             if (self.needs_redraw) {
                 self.renderView();
                 try self.vx.render(writer);
@@ -560,18 +572,25 @@ pub const App = struct {
     }
 
     fn scrollUp(self: *App, n: u16) void {
+        const scroll_before = self.view.scroll;
         if (self.view.scroll >= n) {
             self.view.scroll -= n;
         } else {
             self.view.scroll = 0;
         }
         self.needs_redraw = true;
+
+        // Scroll decreased or stayed at 0
+        assert(self.view.scroll <= scroll_before);
     }
 
     fn scrollDown(self: *App, n: u16) void {
         const max_scroll = self.getMaxScroll();
         self.view.scroll = @min(self.view.scroll + n, max_scroll);
         self.needs_redraw = true;
+
+        // Scroll never exceeds max
+        assert(self.view.scroll <= max_scroll);
     }
 
     /// Get the content area height (viewport).
@@ -679,6 +698,9 @@ pub const App = struct {
 
     /// Switch to a different job (build=0, test=1).
     fn switchJob(self: *App, job_idx: u8) void {
+        // Only job indices 0 and 1 are valid
+        assert(job_idx <= 1);
+
         // Cancel current build FIRST - ensures old thread is joined
         // before we modify build_args_buf (which it may reference)
         self.cancelBuild();
@@ -698,8 +720,13 @@ pub const App = struct {
                 self.build_args_len = 3;
                 self.setJobName("test");
             },
-            else => return,
+            else => unreachable,
         }
+
+        // Args configured correctly for the job
+        assert(self.build_args_len >= 2);
+        assert(self.current_job_name_len > 0);
+
         // Start new build (cancelBuild in startBuild will be a no-op since we're idle)
         self.startBuild();
     }

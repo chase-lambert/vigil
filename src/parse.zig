@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const types = @import("types.zig");
+const assert = std.debug.assert;
 
 const Line = types.Line;
 const LineKind = types.LineKind;
@@ -39,7 +40,7 @@ pub const Parser = struct {
     in_std_frame_context: bool,
 
     pub fn init() Parser {
-        return .{
+        const self = Parser{
             .current_item = 0,
             .in_reference_block = false,
             .current_test_failure = null,
@@ -48,6 +49,12 @@ pub const Parser = struct {
             .error_context_remaining = 0,
             .in_std_frame_context = false,
         };
+        // Parser starts in clean state
+        assert(self.current_item == 0);
+        assert(!self.in_reference_block);
+        assert(self.note_context_remaining == 0);
+        assert(self.error_context_remaining == 0);
+        return self;
     }
 
     /// Parse a single line of output and add it to the report.
@@ -58,6 +65,11 @@ pub const Parser = struct {
     /// internal state (note_context_remaining, in_reference_block, etc.) that
     /// depends on seeing lines in order.
     pub fn parseLine(self: *Parser, raw: []const u8, report: *Report) !void {
+        // Context counters are bounded (we only ever set them to 2)
+        assert(self.note_context_remaining <= 2);
+        assert(self.error_context_remaining <= 2);
+
+        const lines_before = report.lines_len;
         var line = Line.init();
         line.item_index = self.current_item;
 
@@ -66,7 +78,6 @@ pub const Parser = struct {
         line.text_offset = text_info.offset;
         line.text_len = text_info.len;
 
-        // Classify the line
         line.kind = self.classify(raw);
 
         // Track which logical item this line belongs to (for grouping)
@@ -82,7 +93,6 @@ pub const Parser = struct {
             line.location = parseLocation(raw);
         }
 
-        // Update stats
         switch (line.kind) {
             .error_location, .build_error => report.stats.errors += 1,
             .note_location => report.stats.notes += 1,
@@ -130,8 +140,12 @@ pub const Parser = struct {
             }
         }
 
-        // Store the line
         try report.appendLine(line);
+
+        // Exactly one line added, context counters stay bounded
+        assert(report.lines_len == lines_before + 1);
+        assert(self.note_context_remaining <= 2);
+        assert(self.error_context_remaining <= 2);
     }
 
     fn classify(self: *Parser, line: []const u8) LineKind {
@@ -353,12 +367,19 @@ pub fn parseLocation(line: []const u8) ?Location {
     // Validate we have a reasonable path
     if (path.len == 0) return null;
 
-    return Location{
+    const loc = Location{
         .path_start = 0,
         .path_len = @intCast(path.len),
         .line = line_num,
         .col = col_num,
     };
+
+    // Location values are 1-indexed
+    assert(loc.line > 0);
+    assert(loc.col > 0);
+    assert(loc.path_len > 0);
+
+    return loc;
 }
 
 // =============================================================================
@@ -470,10 +491,12 @@ pub fn extractTestName(line: []const u8) ?struct { start: u16, len: u16 } {
     const after_name = line[name_start..];
     const name_len = std.mem.indexOf(u8, after_name, end_marker) orelse return null;
 
-    return .{
-        .start = @intCast(name_start),
-        .len = @intCast(name_len),
-    };
+    const start: u16 = @intCast(name_start);
+    const len: u16 = @intCast(name_len);
+
+    // Extracted name is within line bounds
+    assert(start + len <= line.len);
+    return .{ .start = start, .len = len };
 }
 
 /// Extract expected and actual values from assertion line or test failure header
@@ -499,17 +522,23 @@ pub fn extractExpectedActual(line: []const u8) ?struct {
     // Find ", found " after the expected value
     const comma_pos = std.mem.indexOf(u8, after_expected, found_marker) orelse return null;
 
-    const expected_value_len: u16 = @intCast(comma_pos);
+    const expected_start: u16 = @intCast(value_start);
+    const expected_len: u16 = @intCast(comma_pos);
 
     // The actual value starts after ", found "
     const actual_start: u16 = @intCast(value_start + comma_pos + found_marker.len);
     const actual_value = line[actual_start..];
+    const actual_len: u16 = @intCast(actual_value.len);
+
+    // Extracted values are within line bounds
+    assert(expected_start + expected_len <= line.len);
+    assert(actual_start + actual_len <= line.len);
 
     return .{
-        .expected_start = @intCast(value_start),
-        .expected_len = expected_value_len,
+        .expected_start = expected_start,
+        .expected_len = expected_len,
         .actual_start = actual_start,
-        .actual_len = @intCast(actual_value.len),
+        .actual_len = actual_len,
     };
 }
 

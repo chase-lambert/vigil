@@ -28,11 +28,13 @@ zig build -Doptimize=ReleaseSafe
 cp zig-out/bin/vigil ~/.local/bin/
 ```
 
+**Why ReleaseSafe?** Part of my goal with this project was to practice TigerStyle, so I use a lot of assertions throughout the codebase. These remain active in `ReleaseSafe`. You'd lose them with `ReleaseFast`, but the codebase should be considered safe without them too.
+
 ## Usage
 
 ```bash
-vigil                           # Watch project, run 'zig build'
-vigil test                      # Watch project, run tests
+vigil                           # Start in build mode first
+vigil test                      # Start in test mode first
 vigil -Doptimize=ReleaseFast    # Pass options to zig build
 vigil test -Dtest-filter=foo    # Filter tests (if your build.zig supports it)
 ```
@@ -71,7 +73,7 @@ Vigil uses fixed-size buffers (~740KB for parsed output). Total memory usage is 
 | Output lines | 8,192 | Additional lines dropped |
 | Text buffer | 512 KB | Parsing stops |
 | Line length | 512 chars | Truncated |
-| Numbered errors | 255 | Capped at `[255]` badge |
+| Numbered errors | 255 | Capped at `[255]` badges |
 | Test failures | 255 | Structured display stops |
 | Watch paths | 64 | Extra paths ignored |
 | Watch depth | 8 levels | Deeper directories not watched |

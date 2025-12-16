@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const types = @import("types.zig");
+const assert = std.debug.assert;
 
 /// File watcher using simple polling.
 ///
@@ -23,12 +24,15 @@ pub const Watcher = struct {
     active: bool,
 
     pub fn init(config: types.WatchConfig) Watcher {
-        return .{
+        assert(config.paths_count <= types.MAX_WATCH_PATHS);
+        const self = Watcher{
             .config = config,
             .last_check = 0,
             .mtimes = [_]i128{0} ** types.MAX_WATCH_PATHS,
             .active = config.enabled,
         };
+        assert(self.last_check == 0);
+        return self;
     }
 
     /// Check if any watched files have changed.
@@ -150,6 +154,7 @@ fn getPathMtime(path: []const u8) i128 {
                         if (top.dir.openDir(entry.name, .{ .iterate = true })) |sub_dir| {
                             stack_buf[stack_len] = .{ .dir = sub_dir, .iter = sub_dir.iterate() };
                             stack_len += 1;
+                            assert(stack_len <= MAX_WATCH_DEPTH);
                         } else |_| {}
                     }
                 },

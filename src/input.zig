@@ -6,6 +6,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const types = @import("types.zig");
+const assert = std.debug.assert;
 
 /// Actions that can result from input processing.
 pub const Action = union(enum) {
@@ -79,6 +80,9 @@ pub fn handleHelpMode(key: vaxis.Key) Action {
 }
 
 pub fn handleSearchMode(key: vaxis.Key, search_buf: *[types.MAX_SEARCH_LEN]u8, search_len: *u8) Action {
+    // Search length starts within bounds
+    assert(search_len.* <= types.MAX_SEARCH_LEN);
+
     if (key.matches(vaxis.Key.escape, .{})) return .cancel;
     if (key.matches(vaxis.Key.enter, .{})) return .confirm;
 
@@ -95,6 +99,8 @@ pub fn handleSearchMode(key: vaxis.Key, search_buf: *[types.MAX_SEARCH_LEN]u8, s
         }
     }
 
+    // Search length stays within bounds
+    assert(search_len.* <= types.MAX_SEARCH_LEN);
     return .none;
 }
 

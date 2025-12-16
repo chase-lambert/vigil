@@ -4,7 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Fetch libvaxis dependency
     const vaxis_dep = b.dependency("vaxis", .{
         .target = target,
         .optimize = optimize,
@@ -24,7 +23,6 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
-    // Run command
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
@@ -35,7 +33,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run vigil");
     run_step.dependOn(&run_cmd.step);
 
-    // Tests
     const test_step = b.step("test", "Run unit tests");
 
     // Create fixtures module for golden tests (used by parse.zig)
@@ -45,12 +42,12 @@ pub fn build(b: *std.Build) void {
 
     // Test each module that has tests
     const test_modules = [_][]const u8{
-        "src/types.zig",
-        "src/parse.zig",
-        "src/input.zig",
-        "src/render.zig",
-        "src/watch.zig",
         "src/app.zig",
+        "src/input.zig",
+        "src/parse.zig",
+        "src/render.zig",
+        "src/types.zig",
+        "src/watch.zig",
     };
 
     for (test_modules) |test_file| {
