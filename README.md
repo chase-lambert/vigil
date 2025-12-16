@@ -47,15 +47,15 @@ All options are passed through to `zig build`. Use `-h` for help.
 
 | Key | Action |
 |-----|--------|
+| `h`/`?` | Help |
+| `b`/`t` | Switch to build/test job |
+| `p` | Pause/resume watching |
+| `Space` | Toggle terse/full view |
+| `w` | Toggle line wrap |
 | `j`/`k` | Scroll down/up |
 | `g`/`G` | Jump to top/bottom |
 | `/` | Search |
 | `n`/`N` | Next/previous match |
-| `Space` | Toggle terse/full view |
-| `w` | Toggle line wrap |
-| `b`/`t` | Switch to build/test job |
-| `p` | Pause/resume watching |
-| `h`/`?` | Help |
 | `q` | Quit |
 
 ## What Gets Filtered
