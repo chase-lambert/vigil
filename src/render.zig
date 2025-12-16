@@ -961,8 +961,8 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
     const height = win.height;
 
     // Center the help box
-    const box_width: u16 = 50;
-    const box_height: u16 = 17;
+    const box_width: u16 = 42;
+    const box_height: u16 = 16;
     const x: i17 = @intCast((width -| box_width) / 2);
     const y: i17 = @intCast((height -| box_height) / 2);
 
@@ -977,34 +977,34 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
     help_win.fill(.{ .char = .{ .grapheme = " " }, .style = .{ .bg = colors.header_bg } });
 
     // Title
-    _ = printText(help_win, " Vigil - Keyboard Shortcuts ", .{
+    _ = printText(help_win, "    Vigil - Keyboard Shortcuts", .{
         .fg = .{ .rgb = .{ 0xff, 0xff, 0xff } },
         .bold = true,
         .bg = colors.header_bg,
-    }, .{ .row_offset = 0 });
+    }, .{ .row_offset = 1 });
 
     // Help content
     const help_lines = [_][]const u8{
         "",
-        "  j/k        Scroll down / up",
-        "  g/G        Jump to top / bottom",
-        "  /          Search",
-        "  n/N        Next / previous match",
+        "    b/t        Switch to build / test",
+        "    p          Pause / resume watching",
         "",
-        "  Space      Toggle terse / full",
-        "  w          Toggle line wrap",
+        "    Space      Toggle terse / full",
+        "    w          Toggle line wrap",
         "",
-        "  b/t        Switch to build / test",
-        "  p          Pause / resume watching",
+        "    j/k        Scroll down / up",
+        "    g/G        Jump to top / bottom",
+        "    /          Search",
+        "    n/N        Next / previous match",
         "",
-        "  q          Quit",
+        "    q          Quit",
     };
 
     for (help_lines, 0..) |line, i| {
         _ = printText(help_win, line, .{
             .fg = colors.muted,
             .bg = colors.header_bg,
-        }, .{ .row_offset = @intCast(i + 1) });
+        }, .{ .row_offset = @intCast(i + 2) });
     }
 }
 
