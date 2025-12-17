@@ -2,6 +2,17 @@
 
 A clean, fast build watcher for Zig, inspired by [Bacon](https://github.com/Canop/bacon) for Rust.
 
+Example in Terse Mode:
+
+<img width="700" alt="Vigil in Terse Mode" src="https://github.com/user-attachments/assets/41b3b4b9-17c9-48af-9dd5-8999d12a5679" />
+
+
+Example in Full Mode:
+
+<img width="700" alt="Vigil in Full Mode" src="https://github.com/user-attachments/assets/30f6a821-d7af-4e59-8234-c811543de487" />
+
+
+
 ## Why not just use `zig build --watch`?
 
 Good question. Zig's built-in watch mode is solid and you should try it. Vigil offers a few extras if you want them:
