@@ -7,12 +7,14 @@ const App = @import("app.zig").App;
 const types = @import("types.zig");
 
 pub fn main() !void {
+    // GPA only needed for App internals (vaxis) - not for arg parsing
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    defer std.debug.assert(gpa.deinit() == .ok); // Catch leaks in debug builds
     const alloc = gpa.allocator();
 
-    const args = try std.process.argsAlloc(alloc);
-    defer std.process.argsFree(alloc, args);
+    // Zero allocation: direct access to OS-provided argv
+    // The OS already has these strings in memory - no need to copy them
+    const argv = std.os.argv;
 
     var build_args_buf: [types.MAX_CMD_ARGS][]const u8 = undefined;
     var build_args_len: u8 = 0;
@@ -24,9 +26,10 @@ pub fn main() !void {
 
     var job_name: []const u8 = "build";
 
-    var i: usize = 1;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
+    // Skip argv[0] (program name), iterate the rest
+    for (argv[1..]) |arg_ptr| {
+        // Convert sentinel-terminated pointer to slice
+        const arg = std.mem.span(arg_ptr);
 
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printHelp();

@@ -25,12 +25,14 @@ This project is also a learning exercise in [Data-Oriented Design](https://www.d
 git clone https://github.com/chase-lambert/vigil
 cd vigil
 zig build -Doptimize=ReleaseSafe
-cp zig-out/bin/vigil ~/.local/bin/
+sudo cp zig-out/bin/vigil /usr/local/bin/  # or wherever you keep programs on your PATH
 ```
 
 **Why ReleaseSafe?** Part of my goal with this project was to practice TigerStyle, so I use a lot of assertions throughout the codebase. These remain active in `ReleaseSafe`. You'd lose them with `ReleaseFast`, but the codebase should be considered safe without them too.
 
 **Platform support:** I develop on Linux, and a friend confirmed it works on his Mac. Curious if it works out of the box on Windows — let me know!
+
+**Colors not showing?** Vigil uses 256-color mode. If you see plain text instead of colored badges, try `export TERM=xterm-256color` before running. iTerm2 works great; macOS Terminal.app may need this setting.
 
 ## Usage
 
