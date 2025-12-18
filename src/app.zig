@@ -528,11 +528,11 @@ pub const App = struct {
                 self.view.mode = .normal;
                 self.needs_redraw = true;
             },
-            .cancel => {
+            .cancel_search => {
                 self.view.mode = .normal;
                 self.needs_redraw = true;
             },
-            .confirm => {
+            .confirm_search => {
                 // Search for query and scroll to first match
                 if (self.findNextMatch(0)) |match_scroll| {
                     self.view.scroll = match_scroll;

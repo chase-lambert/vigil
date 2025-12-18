@@ -24,8 +24,8 @@ pub const Action = enum {
     start_search,
     next_match,
     prev_match,
-    cancel,
-    confirm,
+    cancel_search,
+    confirm_search,
     show_help,
     hide_help,
     select_build,
@@ -90,8 +90,8 @@ pub fn handleSearchMode(key: vaxis.Key, search_buf: *[types.MAX_SEARCH_LEN]u8, s
     // Ctrl-C always quits, even mid-search
     if (key.matches('c', .{ .ctrl = true })) return .quit;
 
-    if (key.matches(vaxis.Key.escape, .{})) return .cancel;
-    if (key.matches(vaxis.Key.enter, .{})) return .confirm;
+    if (key.matches(vaxis.Key.escape, .{})) return .cancel_search;
+    if (key.matches(vaxis.Key.enter, .{})) return .confirm_search;
 
     if (key.matches(vaxis.Key.backspace, .{})) {
         if (search_len.* > 0) search_len.* -= 1;
@@ -231,8 +231,8 @@ test "handleSearchMode - escape and enter" {
     var buf: [types.MAX_SEARCH_LEN]u8 = undefined;
     var len: u8 = 0;
 
-    try std.testing.expectEqual(Action.cancel, handleSearchMode(testKey(vaxis.Key.escape, .{}), &buf, &len));
-    try std.testing.expectEqual(Action.confirm, handleSearchMode(testKey(vaxis.Key.enter, .{}), &buf, &len));
+    try std.testing.expectEqual(Action.cancel_search, handleSearchMode(testKey(vaxis.Key.escape, .{}), &buf, &len));
+    try std.testing.expectEqual(Action.confirm_search, handleSearchMode(testKey(vaxis.Key.enter, .{}), &buf, &len));
 }
 
 test "handleKey - mode dispatch" {
