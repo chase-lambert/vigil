@@ -70,6 +70,9 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
 }
 
 pub fn handleHelpMode(key: vaxis.Key) Action {
+    // Ctrl-C always quits, even in help mode
+    if (key.matches('c', .{ .ctrl = true })) return .quit;
+
     if (key.matches('q', .{}) or
         key.matches(vaxis.Key.escape, .{}) or
         key.matches('?', .{}) or
@@ -83,6 +86,9 @@ pub fn handleHelpMode(key: vaxis.Key) Action {
 pub fn handleSearchMode(key: vaxis.Key, search_buf: *[types.MAX_SEARCH_LEN]u8, search_len: *u8) Action {
     // Search length starts within bounds
     assert(search_len.* <= types.MAX_SEARCH_LEN);
+
+    // Ctrl-C always quits, even mid-search
+    if (key.matches('c', .{ .ctrl = true })) return .quit;
 
     if (key.matches(vaxis.Key.escape, .{})) return .cancel;
     if (key.matches(vaxis.Key.enter, .{})) return .confirm;
