@@ -565,9 +565,8 @@ pub const App = struct {
                     }
                 }
             },
-            .select_job => |job_idx| {
-                self.switchJob(job_idx);
-            },
+            .select_build => self.switchToBuild(),
+            .select_test => self.switchToTest(),
         }
     }
 
@@ -696,38 +695,32 @@ pub const App = struct {
         return last_match;
     }
 
-    /// Switch to a different job (build=0, test=1).
-    fn switchJob(self: *App, job_idx: u8) void {
-        // Only job indices 0 and 1 are valid
-        assert(job_idx <= 1);
-
+    /// Switch to build job.
+    fn switchToBuild(self: *App) void {
         // Cancel current build FIRST - ensures old thread is joined
         // before we modify build_args_buf (which it may reference)
         self.cancelBuild();
 
-        // Now safe to modify args - old thread is gone
-        switch (job_idx) {
-            0 => { // build
-                self.build_args_buf[0] = "zig";
-                self.build_args_buf[1] = "build";
-                self.build_args_len = 2;
-                self.setJobName("build");
-            },
-            1 => { // test
-                self.build_args_buf[0] = "zig";
-                self.build_args_buf[1] = "build";
-                self.build_args_buf[2] = "test";
-                self.build_args_len = 3;
-                self.setJobName("test");
-            },
-            else => unreachable,
-        }
+        self.build_args_buf[0] = "zig";
+        self.build_args_buf[1] = "build";
+        self.build_args_len = 2;
+        self.setJobName("build");
 
-        // Args configured correctly for the job
-        assert(self.build_args_len >= 2);
-        assert(self.current_job_name_len > 0);
+        self.startBuild();
+    }
 
-        // Start new build (cancelBuild in startBuild will be a no-op since we're idle)
+    /// Switch to test job.
+    fn switchToTest(self: *App) void {
+        // Cancel current build FIRST - ensures old thread is joined
+        // before we modify build_args_buf (which it may reference)
+        self.cancelBuild();
+
+        self.build_args_buf[0] = "zig";
+        self.build_args_buf[1] = "build";
+        self.build_args_buf[2] = "test";
+        self.build_args_len = 3;
+        self.setJobName("test");
+
         self.startBuild();
     }
 

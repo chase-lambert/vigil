@@ -9,7 +9,7 @@ const types = @import("types.zig");
 const assert = std.debug.assert;
 
 /// Actions that can result from input processing.
-pub const Action = union(enum) {
+pub const Action = enum {
     none,
     quit,
     toggle_expanded,
@@ -28,7 +28,8 @@ pub const Action = union(enum) {
     confirm,
     show_help,
     hide_help,
-    select_job: u8, // Job index 0-2
+    select_build,
+    select_test,
 };
 
 pub fn handleNormalMode(key: vaxis.Key) Action {
@@ -62,8 +63,8 @@ pub fn handleNormalMode(key: vaxis.Key) Action {
     if (key.matches('N', .{}) or key.matches('n', .{ .shift = true })) return .prev_match;
 
     const cp = key.codepoint;
-    if (cp == 'b') return .{ .select_job = 0 };
-    if (cp == 't') return .{ .select_job = 1 };
+    if (cp == 'b') return .select_build;
+    if (cp == 't') return .select_test;
 
     return .none;
 }
@@ -165,11 +166,8 @@ test "handleNormalMode - actions" {
 }
 
 test "handleNormalMode - job selection" {
-    const build_action = handleNormalMode(testKey('b', .{}));
-    const test_action = handleNormalMode(testKey('t', .{}));
-
-    try std.testing.expectEqual(Action{ .select_job = 0 }, build_action);
-    try std.testing.expectEqual(Action{ .select_job = 1 }, test_action);
+    try std.testing.expectEqual(Action.select_build, handleNormalMode(testKey('b', .{})));
+    try std.testing.expectEqual(Action.select_test, handleNormalMode(testKey('t', .{})));
 }
 
 test "handleNormalMode - unmapped keys return none" {
