@@ -962,7 +962,7 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
 
     // Center the help box
     const box_width: u16 = 42;
-    const box_height: u16 = 16;
+    const box_height: u16 = 17;
     const x: i17 = @intCast((width -| box_width) / 2);
     const y: i17 = @intCast((height -| box_height) / 2);
 
@@ -993,6 +993,7 @@ pub fn renderHelp(vx: *vaxis.Vaxis) void {
         "    w          Toggle line wrap",
         "",
         "    j/k        Scroll down / up",
+        "    Ctrl+d/u   Page down / up",
         "    g/G        Jump to top / bottom",
         "    /          Search",
         "    n/N        Next / previous match",

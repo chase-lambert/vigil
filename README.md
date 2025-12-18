@@ -35,6 +35,8 @@ This project is also a learning exercise in [Data-Oriented Design](https://www.d
 
 ## Installation
 
+**Requires Zig 0.15.2** (latest stable).
+
 ```bash
 git clone https://github.com/chase-lambert/vigil
 cd vigil
@@ -71,6 +73,7 @@ All options are passed through to `zig build`. Use `-h` for help.
 | `Space` | Toggle terse/full view |
 | `w` | Toggle line wrap |
 | `j`/`k` | Scroll down/up |
+| `Ctrl+d`/`Ctrl+u` | Page down/up |
 | `g`/`G` | Jump to top/bottom |
 | `/` | Search |
 | `n`/`N` | Next/previous match |

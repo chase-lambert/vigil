@@ -7,7 +7,7 @@ const App = @import("app.zig").App;
 const types = @import("types.zig");
 
 pub fn main() !void {
-    // GPA only needed for App internals (vaxis) - not for arg parsing
+    // GPA only needed for App internals (vaxis)
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(gpa.deinit() == .ok); // Catch leaks in debug builds
     const alloc = gpa.allocator();
