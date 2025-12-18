@@ -48,7 +48,7 @@ sudo cp zig-out/bin/vigil /usr/local/bin/  # or wherever you keep programs on yo
 
 **Platform support:** I develop on Linux, and a friend confirmed it works on his Mac. Curious if it works out of the box on Windows, let me know!
 
-**Colors not showing?** Vigil uses 256-color mode. If you see plain text instead of colored badges, try `export TERM=xterm-256color` before running. iTerm2 works great; macOS Terminal.app may need this setting.
+**Display issues?** Vigil uses true color (24-bit RGB). Most modern terminals work out of the box. If you see garbled output, please [open an issue](https://github.com/chaselambert/vigil/issues) with your terminal name.
 
 ## Usage
 
