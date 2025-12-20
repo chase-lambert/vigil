@@ -208,145 +208,35 @@ fn printText(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, opts:
     return win.print(&.{.{ .text = text, .style = style }}, print_opts);
 }
 
+/// Static graphemes for digits 0-9. Used by writeNumber to avoid stack buffer issues.
+const digit_graphemes = [_][]const u8{ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+
 /// Write a number digit-by-digit using writeCell.
-/// Handles the libvaxis static grapheme requirement for dynamic numbers.
-/// Uses comptime to work with any integer type (u8 for badges, u16 for line counts).
+/// Works with any integer type (u8 for badges, u16 for line counts).
 fn writeNumber(win: vaxis.Window, num: anytype, col: *u16, style: vaxis.Cell.Style) void {
-    // Convert number to digits (reverse order)
+    // Convert number to digit indices (reverse order)
     var digits: [8]u8 = undefined;
     var digit_count: u8 = 0;
     var n = num;
     while (n > 0 or digit_count == 0) : (digit_count += 1) {
-        digits[digit_count] = @intCast((n % 10) + '0');
+        digits[digit_count] = @intCast(n % 10);
         n /= 10;
     }
-    // Write digits in correct order
+    // Write digits in correct order using static grapheme lookup
     var i: u8 = digit_count;
     while (i > 0) {
         i -= 1;
         if (col.* >= win.width) return;
         win.writeCell(col.*, 0, .{
-            .char = .{ .grapheme = charToStaticGrapheme(digits[i]), .width = 1 },
+            .char = .{ .grapheme = digit_graphemes[digits[i]], .width = 1 },
             .style = style,
         });
         col.* += 1;
     }
 }
 
-/// Map a byte to a static string literal for writeCell grapheme field.
-/// libvaxis requires grapheme to point to static/comptime memory - runtime slices corrupt in ReleaseSafe.
-/// Covers all printable ASCII (0x20-0x7E). Returns "?" for unmapped characters.
-fn charToStaticGrapheme(c: u8) []const u8 {
-    return switch (c) {
-        // Space and punctuation (0x20-0x2F)
-        ' ' => " ",
-        '!' => "!",
-        '"' => "\"",
-        '#' => "#",
-        '$' => "$",
-        '%' => "%",
-        '&' => "&",
-        '\'' => "'",
-        '(' => "(",
-        ')' => ")",
-        '*' => "*",
-        '+' => "+",
-        ',' => ",",
-        '-' => "-",
-        '.' => ".",
-        '/' => "/",
-        // Digits (0x30-0x39)
-        '0' => "0",
-        '1' => "1",
-        '2' => "2",
-        '3' => "3",
-        '4' => "4",
-        '5' => "5",
-        '6' => "6",
-        '7' => "7",
-        '8' => "8",
-        '9' => "9",
-        // Punctuation (0x3A-0x40)
-        ':' => ":",
-        ';' => ";",
-        '<' => "<",
-        '=' => "=",
-        '>' => ">",
-        '?' => "?",
-        '@' => "@",
-        // Uppercase letters (0x41-0x5A)
-        'A' => "A",
-        'B' => "B",
-        'C' => "C",
-        'D' => "D",
-        'E' => "E",
-        'F' => "F",
-        'G' => "G",
-        'H' => "H",
-        'I' => "I",
-        'J' => "J",
-        'K' => "K",
-        'L' => "L",
-        'M' => "M",
-        'N' => "N",
-        'O' => "O",
-        'P' => "P",
-        'Q' => "Q",
-        'R' => "R",
-        'S' => "S",
-        'T' => "T",
-        'U' => "U",
-        'V' => "V",
-        'W' => "W",
-        'X' => "X",
-        'Y' => "Y",
-        'Z' => "Z",
-        // Punctuation (0x5B-0x60)
-        '[' => "[",
-        '\\' => "\\",
-        ']' => "]",
-        '^' => "^",
-        '_' => "_",
-        '`' => "`",
-        // Lowercase letters (0x61-0x7A)
-        'a' => "a",
-        'b' => "b",
-        'c' => "c",
-        'd' => "d",
-        'e' => "e",
-        'f' => "f",
-        'g' => "g",
-        'h' => "h",
-        'i' => "i",
-        'j' => "j",
-        'k' => "k",
-        'l' => "l",
-        'm' => "m",
-        'n' => "n",
-        'o' => "o",
-        'p' => "p",
-        'q' => "q",
-        'r' => "r",
-        's' => "s",
-        't' => "t",
-        'u' => "u",
-        'v' => "v",
-        'w' => "w",
-        'x' => "x",
-        'y' => "y",
-        'z' => "z",
-        // Punctuation (0x7B-0x7E)
-        '{' => "{",
-        '|' => "|",
-        '}' => "}",
-        '~' => "~",
-        // Non-printable or extended ASCII
-        else => "?",
-    };
-}
-
 /// Render a content line using writeCell character-by-character.
-/// This avoids the grapheme lifetime issue with win.print() on runtime strings.
+/// Text must point to stable memory (e.g., Report.textBuf) that outlives the render call.
 /// When wrap=true, continues to next row when width exceeded. Returns rows used.
 /// If search_query is non-empty, highlights all case-insensitive matches.
 fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style, start_row: u16, wrap: bool, search_query: []const u8) u16 {
@@ -381,7 +271,7 @@ fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style
                     if (row >= max_row) break;
                 }
                 win.writeCell(col, row, .{
-                    .char = .{ .grapheme = charToStaticGrapheme(text[i + j]), .width = 1 },
+                    .char = .{ .grapheme = text[i + j ..][0..1], .width = 1 },
                     .style = .{ .fg = colors.search_match_fg, .bg = colors.search_match_bg, .bold = true },
                 });
                 col += 1;
@@ -390,7 +280,7 @@ fn printContentLine(win: vaxis.Window, text: []const u8, style: vaxis.Cell.Style
         } else {
             // Normal character
             win.writeCell(col, row, .{
-                .char = .{ .grapheme = charToStaticGrapheme(text[i]), .width = 1 },
+                .char = .{ .grapheme = text[i..][0..1], .width = 1 },
                 .style = style,
             });
             col += 1;
@@ -479,11 +369,11 @@ fn renderErrorLine(
     col += 1;
     col += 1; // Gap after badge
 
-    // Render the full error line text
-    for (text) |c| {
+    // Render the full error line text (text points to stable Report.textBuf memory)
+    for (0..text.len) |i| {
         if (col >= win.width) break;
         win.writeCell(col, row, .{
-            .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+            .char = .{ .grapheme = text[i..][0..1], .width = 1 },
             .style = .{ .fg = colors.error_fg, .bg = bg_color },
         });
         col += 1;
@@ -555,22 +445,22 @@ fn renderTestFailureLine(
     col += 1;
     col += 1; // Gap
 
-    // Render "failed: " in red
+    // Render "failed: " in red (string literal = static memory)
     const failed_text = "failed: ";
-    for (failed_text) |c| {
+    for (0..failed_text.len) |i| {
         if (col >= win.width) break;
         win.writeCell(col, row, .{
-            .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+            .char = .{ .grapheme = failed_text[i..][0..1], .width = 1 },
             .style = .{ .fg = colors.error_fg, .bold = true },
         });
         col += 1;
     }
 
-    // Render test name
-    for (test_name) |c| {
+    // Render test name (points to stable Report.textBuf memory)
+    for (0..test_name.len) |i| {
         if (col >= win.width) break;
         win.writeCell(col, row, .{
-            .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+            .char = .{ .grapheme = test_name[i..][0..1], .width = 1 },
             .style = .{ .fg = colors.error_fg },
         });
         col += 1;
@@ -586,19 +476,19 @@ fn renderTestFailureLine(
         const current_row = row + rows_used;
         col = 0;
         const expected_label = "expected: ";
-        for (expected_label) |c| {
+        for (0..expected_label.len) |i| {
             if (col >= win.width) break;
             win.writeCell(col, current_row, .{
-                .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+                .char = .{ .grapheme = expected_label[i..][0..1], .width = 1 },
                 .style = .{ .fg = colors.muted },
             });
             col += 1;
         }
-        // Render expected value in green
-        for (expected_value) |c| {
+        // Render expected value in green (points to stable Report.textBuf memory)
+        for (0..expected_value.len) |i| {
             if (col >= win.width) break;
             win.writeCell(col, current_row, .{
-                .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+                .char = .{ .grapheme = expected_value[i..][0..1], .width = 1 },
                 .style = .{ .fg = colors.expected_fg },
             });
             col += 1;
@@ -610,19 +500,19 @@ fn renderTestFailureLine(
             const next_row = row + rows_used;
             col = 0;
             const found_label = "   found: ";
-            for (found_label) |c| {
+            for (0..found_label.len) |i| {
                 if (col >= win.width) break;
                 win.writeCell(col, next_row, .{
-                    .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+                    .char = .{ .grapheme = found_label[i..][0..1], .width = 1 },
                     .style = .{ .fg = colors.muted },
                 });
                 col += 1;
             }
-            // Render actual value in red
-            for (actual_value) |c| {
+            // Render actual value in red (points to stable Report.textBuf memory)
+            for (0..actual_value.len) |i| {
                 if (col >= win.width) break;
                 win.writeCell(col, next_row, .{
-                    .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
+                    .char = .{ .grapheme = actual_value[i..][0..1], .width = 1 },
                     .style = .{ .fg = colors.actual_fg },
                 });
                 col += 1;
@@ -687,65 +577,68 @@ fn renderHeader(win: vaxis.Window, ctx: RenderContext) void {
 
     var col: u16 = 0;
 
-    // Helper: write a single character cell (uses shared charToStaticGrapheme)
-    const writeChar = struct {
-        fn f(w: vaxis.Window, c: u8, column: *u16, bg: vaxis.Color, fg: vaxis.Color) void {
-            if (column.* >= w.width) return;
-            w.writeCell(column.*, 0, Cell{
-                .char = .{ .grapheme = charToStaticGrapheme(c), .width = 1 },
-                .style = .{ .bg = bg, .fg = fg, .bold = true },
-            });
-            column.* += 1;
+    // Helper: write a string slice character-by-character.
+    // Text must point to stable memory (string literals or App fields).
+    const writeStr = struct {
+        fn f(w: vaxis.Window, text: []const u8, column: *u16, bg: vaxis.Color, fg: vaxis.Color) void {
+            for (0..text.len) |i| {
+                if (column.* >= w.width) return;
+                w.writeCell(column.*, 0, Cell{
+                    .char = .{ .grapheme = text[i..][0..1], .width = 1 },
+                    .style = .{ .bg = bg, .fg = fg, .bold = true },
+                });
+                column.* += 1;
+            }
         }
     }.f;
 
-    // 1. Project name: " <name> "
-    writeChar(win, ' ', &col, project_bg, white);
-    for (project_name) |c| writeChar(win, c, &col, project_bg, white);
-    writeChar(win, ' ', &col, project_bg, white);
+    // 1. Project name: " <name> " (project_name is stable App memory)
+    writeStr(win, " ", &col, project_bg, white);
+    writeStr(win, project_name, &col, project_bg, white);
+    writeStr(win, " ", &col, project_bg, white);
     col += 1; // Gap
 
-    // 2. Job name: " build " / " test "
-    writeChar(win, ' ', &col, job_bg, white);
-    for (job_name) |c| writeChar(win, c, &col, job_bg, white);
-    writeChar(win, ' ', &col, job_bg, white);
+    // 2. Job name: " build " / " test " (job_name is a string literal)
+    writeStr(win, " ", &col, job_bg, white);
+    writeStr(win, job_name, &col, job_bg, white);
+    writeStr(win, " ", &col, job_bg, white);
     col += 1; // Gap
 
     // 3. Status badge (building takes priority, then build error, then compile errors)
     const badge_style = vaxis.Cell.Style{ .bg = status_fail_bg, .fg = white, .bold = true };
     if (ctx.is_building) {
-        for (" building ") |c| writeChar(win, c, &col, status_building_bg, white);
+        writeStr(win, " building ", &col, status_building_bg, white);
     } else if (ctx.spawn_failed) {
         // Build command failed to start (e.g., zig not found, permission denied)
-        for (" build error ") |c| writeChar(win, c, &col, status_fail_bg, white);
+        writeStr(win, " build error ", &col, status_fail_bg, white);
     } else if (report.stats.tests_failed > 0) {
         // " N fail " or " N fails "
-        writeChar(win, ' ', &col, status_fail_bg, white);
+        writeStr(win, " ", &col, status_fail_bg, white);
         writeNumber(win, report.stats.tests_failed, &col, badge_style);
         const fail_text: []const u8 = if (report.stats.tests_failed == 1) " fail " else " fails ";
-        for (fail_text) |c| writeChar(win, c, &col, status_fail_bg, white);
+        writeStr(win, fail_text, &col, status_fail_bg, white);
     } else if (report.stats.errors > 0) {
-        writeChar(win, ' ', &col, status_fail_bg, white);
+        writeStr(win, " ", &col, status_fail_bg, white);
         writeNumber(win, report.stats.errors, &col, badge_style);
         const error_text: []const u8 = if (report.stats.errors == 1) " error " else " errors ";
-        for (error_text) |c| writeChar(win, c, &col, status_fail_bg, white);
+        writeStr(win, error_text, &col, status_fail_bg, white);
     } else if (report.stats.tests_passed > 0) {
-        for (" pass! ") |c| writeChar(win, c, &col, status_ok_bg, white);
+        writeStr(win, " pass! ", &col, status_ok_bg, white);
     } else {
-        for (" OK ") |c| writeChar(win, c, &col, status_ok_bg, white);
+        writeStr(win, " OK ", &col, status_ok_bg, white);
     }
     col += 1; // Gap
 
     // 4. Mode indicator (terse/full)
     const mode_bg = if (view.expanded) mode_full_bg else mode_terse_bg;
     const mode_text: []const u8 = if (view.expanded) " full " else " terse ";
-    for (mode_text) |c| writeChar(win, c, &col, mode_bg, white);
+    writeStr(win, mode_text, &col, mode_bg, white);
     col += 1; // Gap
 
     // 5. Watch status
     const watch_bg = if (watching) watch_on_bg else watch_off_bg;
     const watch_text: []const u8 = if (watching) " watching " else " paused ";
-    for (watch_text) |c| writeChar(win, c, &col, watch_bg, white);
+    writeStr(win, watch_text, &col, watch_bg, white);
 }
 
 /// Render the main content area with build output.
@@ -833,7 +726,6 @@ fn renderContent(win: vaxis.Window, ctx: RenderContext) void {
 }
 
 /// Render the footer with help text and stats.
-/// Uses writeCell with static graphemes to avoid libvaxis stack buffer corruption bug.
 fn renderFooter(
     win: vaxis.Window,
     report: *const types.Report,
@@ -845,13 +737,14 @@ fn renderFooter(
     var col: u16 = 0;
     const fg = colors.muted;
 
-    // Helper to write a static string character-by-character
+    // Helper to write a string slice character-by-character.
+    // All strings passed here are literals (stable memory).
     const writeStr = struct {
         fn f(w: vaxis.Window, text: []const u8, c: *u16, style_fg: vaxis.Color) void {
-            for (text) |byte| {
+            for (0..text.len) |i| {
                 if (c.* >= w.width) return;
                 w.writeCell(c.*, 0, .{
-                    .char = .{ .grapheme = charToStaticGrapheme(byte), .width = 1 },
+                    .char = .{ .grapheme = text[i..][0..1], .width = 1 },
                     .style = .{ .fg = style_fg },
                 });
                 c.* += 1;
@@ -933,18 +826,15 @@ pub fn renderSearchInput(vx: *vaxis.Vaxis, query: []const u8) void {
         .bg = colors.header_bg,
     }, .{ .row_offset = 0 });
 
-    // Input line with cursor
-    var input_buf: [64]u8 = undefined;
-    const prefix = " / ";
-    @memcpy(input_buf[0..prefix.len], prefix);
-    const query_len = @min(query.len, input_buf.len - prefix.len - 1);
-    @memcpy(input_buf[prefix.len..][0..query_len], query[0..query_len]);
-    input_buf[prefix.len + query_len] = '_'; // Cursor
-    const input_text = input_buf[0 .. prefix.len + query_len + 1];
-
-    _ = printText(search_win, input_text, .{
-        .fg = .default,
-        .bg = colors.header_bg,
+    // Input line: render " / " + query + "_" as separate segments.
+    // This avoids copying into a stack buffer - each segment points to stable memory:
+    // - " / " and "_" are string literals (static)
+    // - query is a slice into ViewState.search (lives in App, stable for program lifetime)
+    const input_style = vaxis.Cell.Style{ .fg = .default, .bg = colors.header_bg };
+    _ = search_win.print(&.{
+        .{ .text = " / ", .style = input_style },
+        .{ .text = query, .style = input_style },
+        .{ .text = "_", .style = input_style },
     }, .{ .row_offset = 1 });
 
     // Hint
