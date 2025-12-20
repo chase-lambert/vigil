@@ -449,25 +449,34 @@ Display:    [1] failed: test.name
 
 ## libvaxis Gotchas
 
-**Critical**: Cell graphemes must point to **static/comptime strings**, not stack buffers.
+**Critical**: Cell graphemes must point to **memory that outlives the render() call**.
 
-libvaxis uses **deferred rendering** — it stores cell references in a screen buffer, then renders to terminal later. If grapheme pointers reference stack memory, that memory may be corrupted by subsequent code before render time.
+libvaxis uses **deferred rendering** — it stores grapheme pointers in a screen buffer, then reads them later during `render()`. If those pointers reference stack memory from a function that has returned, the memory will be corrupted.
 
 ```zig
-// BAD: Corruption in ReleaseSafe
-var buf: [8]u8 = undefined;
-cell.grapheme = std.fmt.bufPrint(&buf, "{d}", .{n});
+// BAD: Stack buffer invalidated after function returns
+fn renderSomething(win: Window) void {
+    var buf: [8]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "{d}", .{n});
+    win.writeCell(0, 0, .{ .char = .{ .grapheme = text } });
+}  // buf is gone, but cell still points to it!
 
-// GOOD: Use charToStaticGrapheme() for dynamic characters
+// GOOD: Use slices into stable memory
 win.writeCell(col, row, .{
-    .char = .{ .grapheme = charToStaticGrapheme(byte), .width = 1 },
+    .char = .{ .grapheme = text[i..][0..1], .width = 1 },  // text points to stable memory
     .style = style,
 });
 ```
 
-**Safe pattern for text rendering**: Use `writeCell` character-by-character with `charToStaticGrapheme()` (maps bytes to static string literals). See `renderHeader`, `renderFooter`, and `printContentLine` in `render.zig`.
+**Safe sources for graphemes:**
+- String literals (static memory, lives forever)
+- Slices into `Report.textBuf` (program-lifetime static buffer)
+- Slices into `ViewState` fields (lives in App, program lifetime)
+- `win.print()` with segments pointing to any of the above
 
-**Unsafe pattern**: `win.print()` with stack-allocated format buffers — the text pointer escapes into the cell buffer but stack is reused before render.
+**Unsafe pattern**: Formatting into a stack buffer, then passing that to `writeCell` or `win.print()`.
+
+**For dynamic numbers**: Use a static digit lookup table (see `digit_graphemes` and `writeNumber` in `render.zig`).
 
 **Startup order**: Call `loop.start()` BEFORE `queryTerminal()`.
 
