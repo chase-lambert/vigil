@@ -83,7 +83,7 @@ pub const App = struct {
     needs_redraw: bool,
     spawn_failed: bool, // True if build command failed to spawn
 
-    // Async build state
+    // Background thread build state
     build_thread: ?std.Thread = null,
     build_output: []const u8 = "",
     build_exit_code: ?u8 = null,

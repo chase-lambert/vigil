@@ -1,8 +1,6 @@
 //! File system watching for automatic rebuilds.
 //!
 //! Currently implements simple polling-based watching.
-//! Future versions may use inotify (Linux), FSEvents (macOS),
-//! or ReadDirectoryChangesW (Windows) for efficiency.
 
 const std = @import("std");
 const types = @import("types.zig");
@@ -128,6 +126,7 @@ fn getPathMtime(path: []const u8) i128 {
             if (std.mem.eql(u8, entry.name, "node_modules")) continue;
             if (std.mem.eql(u8, entry.name, "vendor")) continue;
             if (std.mem.eql(u8, entry.name, "third_party")) continue;
+            if (std.mem.eql(u8, entry.name, "dist")) continue;
 
             switch (entry.kind) {
                 .file => {

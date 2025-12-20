@@ -98,7 +98,7 @@ Vigil uses fixed-size buffers (~740KB for parsed output). Total memory usage is 
 | Test failures | 255 | Structured display stops |
 | Watch depth | 16 levels | Deeper directories not watched |
 
-**File watching:** Vigil watches the entire project directory. Hidden dirs, `zig-out`, `zig-cache`, `node_modules`, `vendor`, and `third_party` are ignored.
+**File watching:** Vigil watches the entire project directory. Hidden dirs, `zig-out`, `zig-cache`, `node_modules`, `vendor`, `third_party`, and `dist` are ignored.
 
 **Debounce:** File changes within 100ms are batched into a single rebuild.
 
