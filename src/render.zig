@@ -537,11 +537,11 @@ pub fn render(vx: *vaxis.Vaxis, ctx: RenderContext) void {
         return;
     }
 
-    // Layout: header (1) + gap (1) + content (height-3) + footer (1)
+    // Layout: header (1) + gap (1) + content (height-4) + gap (1) + footer (1)
     const header_win = win.child(.{ .height = 1 });
     const content_win = win.child(.{
         .y_off = 2, // Gap after header
-        .height = height -| 3,
+        .height = height -| 4, // Reserve 1 row for gap above footer
     });
     const footer_win = win.child(.{
         .y_off = @intCast(height -| 1),
