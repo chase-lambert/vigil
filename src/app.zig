@@ -11,6 +11,7 @@
 //! We use a global static variable for it - goes in .bss segment, no heap allocation.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const vaxis = @import("vaxis");
 const types = @import("types.zig");
 const parse = @import("parse.zig");
@@ -18,6 +19,10 @@ const watch = @import("watch.zig");
 const render = @import("render.zig");
 const input = @import("input.zig");
 const assert = std.debug.assert;
+
+// Windows-specific imports for Job Object process management
+const windows = if (builtin.os.tag == .windows) std.os.windows else struct {};
+const windows_job = if (builtin.os.tag == .windows) @import("windows_job.zig") else struct {};
 
 /// Case-insensitive substring search.
 fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
@@ -90,7 +95,21 @@ pub const App = struct {
     build_complete: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     build_error: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     // Child process PID for cancellation (0 = no child running)
+    // On POSIX, this stores the PID which is also the process group ID
     build_child_pid: std.atomic.Value(i32) = std.atomic.Value(i32).init(0),
+    // Windows: Job object handle for killing process tree (stored as usize for atomic ops)
+    // We use usize because HANDLE is a pointer and can't be stored in atomic.Value directly
+    build_job_handle: if (builtin.os.tag == .windows) std.atomic.Value(usize) else void =
+        if (builtin.os.tag == .windows) std.atomic.Value(usize).init(0) else {},
+
+    // Helper functions for Windows HANDLE <-> usize conversion
+    inline fn handleToUsize(h: ?windows.HANDLE) usize {
+        return if (h) |handle| @intFromPtr(handle) else 0;
+    }
+
+    inline fn usizeToHandle(u: usize) ?windows.HANDLE {
+        return if (u != 0) @ptrFromInt(u) else null;
+    }
 
     pub fn init(alloc: std.mem.Allocator) !App {
         var app = App{
@@ -301,8 +320,16 @@ pub const App = struct {
         else
             defaultBuildArgs();
 
-        // Run build with cancellation support - stores PID in app.build_child_pid
-        const result = runBuildCmdCancellable(app.alloc, args, &app.build_child_pid, &app.build_error);
+        // Run build with cancellation support
+        // POSIX: stores PID in build_child_pid for process group termination
+        // Windows: stores job handle in build_job_handle for Job Object termination
+        const result = runBuildCmdCancellable(
+            app.alloc,
+            args,
+            if (builtin.os.tag == .windows) {} else &app.build_child_pid,
+            if (builtin.os.tag == .windows) &app.build_job_handle else {},
+            &app.build_error,
+        );
 
         // Store results for main thread to process
         app.build_output = result.output;
@@ -317,6 +344,15 @@ pub const App = struct {
         if (self.build_thread) |thread| {
             thread.join();
             self.build_thread = null;
+        }
+
+        // Close job handle on Windows (process completed, just cleanup)
+        if (builtin.os.tag == .windows) {
+            const job_usize = self.build_job_handle.load(.acquire);
+            if (usizeToHandle(job_usize)) |job| {
+                windows.CloseHandle(job);
+                self.build_job_handle.store(0, .release);
+            }
         }
 
         if (self.build_error.load(.acquire)) {
@@ -350,26 +386,39 @@ pub const App = struct {
     /// Cancel running build (for job switch or quit).
     /// Kills the child process group (if running) and joins the build thread.
     pub fn cancelBuild(self: *App) void {
-        // If thread exists but PID not yet stored, spin briefly waiting for it.
+        // If thread exists but handle not yet stored, spin briefly waiting for it.
         // This closes the race window where user quits immediately after build starts.
         // CANCEL_PID_WAIT_MS is a pragmatic upper bound; if we still haven't observed
-        // the PID after this, we proceed to join() which may block until the build
-        // exits naturally. In practice, PID publication happens almost immediately
+        // the handle after this, we proceed to join() which may block until the build
+        // exits naturally. In practice, handle publication happens almost immediately
         // after spawn().
         if (self.build_thread != null) {
             var attempts: u8 = 0;
-            while (self.build_child_pid.load(.acquire) == 0 and attempts < types.CANCEL_PID_WAIT_MS) : (attempts += 1) {
-                std.Thread.sleep(1 * std.time.ns_per_ms);
+            if (builtin.os.tag == .windows) {
+                while (self.build_job_handle.load(.acquire) == 0 and attempts < types.CANCEL_PID_WAIT_MS) : (attempts += 1) {
+                    std.Thread.sleep(1 * std.time.ns_per_ms);
+                }
+            } else {
+                while (self.build_child_pid.load(.acquire) == 0 and attempts < types.CANCEL_PID_WAIT_MS) : (attempts += 1) {
+                    std.Thread.sleep(1 * std.time.ns_per_ms);
+                }
             }
         }
 
-        // Kill child process GROUP if running - this causes collectOutput to return.
-        // We use -pid (negative) to kill the entire process group, not just the parent.
+        // Kill child process tree - this causes collectOutput to return.
         // This is critical because zig build spawns many child processes!
-        const pid = self.build_child_pid.load(.acquire);
-        if (pid > 0) {
-            // SIGKILL the entire process group (negative PID = process group)
-            std.posix.kill(-pid, std.posix.SIG.KILL) catch {};
+        if (builtin.os.tag == .windows) {
+            // Windows: Terminate job object (kills all descendants atomically)
+            const job_usize = self.build_job_handle.load(.acquire);
+            if (usizeToHandle(job_usize)) |job| {
+                windows_job.terminateAndClose(job);
+            }
+        } else {
+            // POSIX: Kill entire process group (negative PID = process group)
+            const pid = self.build_child_pid.load(.acquire);
+            if (pid > 0) {
+                std.posix.kill(-pid, std.posix.SIG.KILL) catch {};
+            }
         }
 
         // Now safe to join - child is dead, thread will exit quickly
@@ -378,8 +427,15 @@ pub const App = struct {
             self.build_thread = null;
         }
 
-        // Clear PID (thread may have already cleared it, but be safe)
-        self.build_child_pid.store(0, .release);
+        // Clear handles to maintain invariant: 0 = no active handle.
+        // On Windows, terminateAndClose() already closed the handle, but we still
+        // zero the atomic for consistency. On POSIX, kill() doesn't clear anything.
+        // This is intentionally redundant on Windows — idempotent and defensive.
+        if (builtin.os.tag == .windows) {
+            self.build_job_handle.store(0, .release);
+        } else {
+            self.build_child_pid.store(0, .release);
+        }
 
         // Free any pending output from previous build
         if (self.build_output.len > 0) {
@@ -390,7 +446,11 @@ pub const App = struct {
 
         // Cancellation complete - no thread, no child, idle state
         assert(self.build_thread == null);
-        assert(self.build_child_pid.load(.acquire) == 0);
+        if (builtin.os.tag == .windows) {
+            assert(self.build_job_handle.load(.acquire) == 0);
+        } else {
+            assert(self.build_child_pid.load(.acquire) == 0);
+        }
         assert(self.state == .idle);
     }
 
@@ -798,13 +858,15 @@ fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult 
 }
 
 /// Run a build command with cancellation support.
-/// Stores the child PID atomically so it can be killed from another thread.
+/// On POSIX: Stores the child PID atomically so it can be killed from another thread.
+/// On Windows: Creates a Job Object and stores the handle for process tree termination.
 /// Sets error_out to true if spawn/collection/wait fails (not just "build had errors").
 /// Returns null output if the process was killed (cancelled).
 fn runBuildCmdCancellable(
     alloc: std.mem.Allocator,
     args: []const []const u8,
-    pid_out: *std.atomic.Value(i32),
+    pid_out: if (builtin.os.tag == .windows) void else *std.atomic.Value(i32),
+    job_out: if (builtin.os.tag == .windows) *std.atomic.Value(usize) else void,
     error_out: *std.atomic.Value(bool),
 ) BuildResult {
     assert(args.len > 0);
@@ -820,17 +882,22 @@ fn runBuildCmdCancellable(
         return BuildResult{ .output = "", .exit_code = null };
     };
 
-    // Put child in its own process group so we can kill all descendants.
+    // Set up process group/job for killing all descendants.
     // When zig build runs, it spawns many child processes. If we only kill
     // the parent, the children become orphaned and keep running!
-    // By making the child its own process group leader (pgid = pid),
-    // we can later kill(-pid) to terminate the entire group.
-    const child_pid: std.posix.pid_t = @intCast(child.id);
-    std.posix.setpgid(child_pid, child_pid) catch {};
-
-    // Store PID atomically so main thread can kill if needed
-    // This PID is also the PGID since we made it the group leader
-    pid_out.store(child_pid, .release);
+    if (builtin.os.tag == .windows) {
+        // Windows: Create job object and assign child process.
+        // All descendants will automatically be added to the job.
+        if (windows_job.createAndAssign(child.id)) |job| {
+            job_out.store(App.handleToUsize(job), .release);
+        }
+    } else {
+        // POSIX: Make child its own process group leader (pgid = pid),
+        // so we can later kill(-pid) to terminate the entire group.
+        const child_pid: std.posix.pid_t = @intCast(child.id);
+        std.posix.setpgid(child_pid, child_pid) catch {};
+        pid_out.store(child_pid, .release);
+    }
 
     // Collect output - blocks until EOF (process exits or is killed)
     // In Zig 0.15, ArrayList is unmanaged by default - allocator passed to methods
@@ -839,8 +906,12 @@ fn runBuildCmdCancellable(
     defer stdout_list.deinit(alloc); // We only care about stderr
 
     child.collectOutput(alloc, &stdout_list, &stderr_list, types.MAX_TEXT_SIZE) catch {
-        // Collection failed (unlikely) - clear PID and wait
-        pid_out.store(0, .release);
+        // Collection failed (unlikely) - clear handle and wait
+        if (builtin.os.tag == .windows) {
+            job_out.store(0, .release);
+        } else {
+            pid_out.store(0, .release);
+        }
         _ = child.wait() catch {};
         stderr_list.deinit(alloc);
         error_out.store(true, .release);
@@ -848,7 +919,10 @@ fn runBuildCmdCancellable(
     };
 
     // Clear PID before wait - process has finished or been killed
-    pid_out.store(0, .release);
+    // Note: On Windows, we DON'T clear the job handle here - finishBuild() will close it
+    if (builtin.os.tag != .windows) {
+        pid_out.store(0, .release);
+    }
 
     // Reap the process
     const term = child.wait() catch {

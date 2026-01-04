@@ -3,6 +3,7 @@
 //! Entry point and argument parsing.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const App = @import("app.zig").App;
 const types = @import("types.zig");
 
@@ -12,9 +13,14 @@ pub fn main() !void {
     defer std.debug.assert(gpa.deinit() == .ok); // Catch leaks in debug builds
     const alloc = gpa.allocator();
 
-    // Zero allocation: direct access to OS-provided argv
-    // The OS already has these strings in memory - no need to copy them
-    const argv = std.os.argv;
+    // Cross-platform argument access:
+    // - Unix: std.os.argv provides zero-copy access to OS-provided argv
+    // - Windows: must parse command line string, requires allocation
+    const argv = if (builtin.os.tag == .windows)
+        try std.process.argsAlloc(alloc)
+    else
+        std.os.argv;
+    defer if (builtin.os.tag == .windows) std.process.argsFree(alloc, argv);
 
     var build_args_buf: [types.MAX_CMD_ARGS][]const u8 = undefined;
     var build_args_len: u8 = 0;
@@ -28,8 +34,8 @@ pub fn main() !void {
 
     // Skip argv[0] (program name), iterate the rest
     for (argv[1..]) |arg_ptr| {
-        // Convert sentinel-terminated pointer to slice
-        const arg = std.mem.span(arg_ptr);
+        // Convert to slice: Unix has [*:0]u8 (needs span), Windows has [:0]u8 (coerces directly)
+        const arg: []const u8 = if (builtin.os.tag == .windows) arg_ptr else std.mem.span(arg_ptr);
 
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printHelp();
