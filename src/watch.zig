@@ -136,7 +136,7 @@ fn getPathMtime(path: []const u8) i128 {
                         }
                     } else |_| {}
                 },
-                .directory => {
+                .directory, .sym_link => {
                     // Push subdirectory onto stack if we have room
                     if (stack_len < MAX_WATCH_DEPTH) {
                         if (top.dir.openDir(entry.name, .{ .iterate = true })) |sub_dir| {
