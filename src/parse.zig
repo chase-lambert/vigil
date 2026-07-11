@@ -157,7 +157,7 @@ pub const Parser = struct {
             return .blank;
         }
 
-        const trimmed = std.mem.trimLeft(u8, line, " ");
+        const trimmed = std.mem.trimStart(u8, line, " ");
         if (trimmed.len == 0) return .blank;
 
         // Error context lines: after error_location, we expect source + pointer lines
@@ -165,8 +165,8 @@ pub const Parser = struct {
         if (self.error_context_remaining > 0) {
             self.error_context_remaining -= 1;
             // Check if it's actually context (not another location line, keyword, or test failure)
-            if (std.mem.indexOf(u8, line, ": note:") == null and
-                std.mem.indexOf(u8, line, ": error:") == null and
+            if (std.mem.find(u8, line, ": note:") == null and
+                std.mem.find(u8, line, ": error:") == null and
                 !std.mem.startsWith(u8, trimmed, "referenced by:") and
                 !isTestFailHeader(line))
             {
@@ -182,8 +182,8 @@ pub const Parser = struct {
         if (self.note_context_remaining > 0) {
             self.note_context_remaining -= 1;
             // Check if it's actually context (not another location line, keyword, or test failure)
-            if (std.mem.indexOf(u8, line, ": note:") == null and
-                std.mem.indexOf(u8, line, ": error:") == null and
+            if (std.mem.find(u8, line, ": note:") == null and
+                std.mem.find(u8, line, ": error:") == null and
                 !std.mem.startsWith(u8, trimmed, "referenced by:") and
                 !isTestFailHeader(line))
             {
@@ -209,8 +209,8 @@ pub const Parser = struct {
         if (self.in_reference_block) {
             if (countLeadingSpaces(line) >= 4) {
                 // Check if it's still a reference line
-                if (std.mem.indexOf(u8, trimmed, ".zig:") != null or
-                    std.mem.indexOf(u8, line, "reference(s) hidden") != null)
+                if (std.mem.find(u8, trimmed, ".zig:") != null or
+                    std.mem.find(u8, line, "reference(s) hidden") != null)
                 {
                     return .referenced_by;
                 }
@@ -223,10 +223,10 @@ pub const Parser = struct {
 
         // Error/note with location pattern: "path:line:col: type:"
         // Check for std library frames (noise in test output) - hide in terse mode
-        const is_std_frame = std.mem.indexOf(u8, line, "/lib/std/") != null or
-            std.mem.indexOf(u8, line, "lib/std/") != null;
+        const is_std_frame = std.mem.find(u8, line, "/lib/std/") != null or
+            std.mem.find(u8, line, "lib/std/") != null;
 
-        if (std.mem.indexOf(u8, line, ": error:")) |_| {
+        if (std.mem.find(u8, line, ": error:")) |_| {
             self.in_std_frame_context = is_std_frame;
             if (is_std_frame) {
                 return .test_internal_frame;
@@ -235,7 +235,7 @@ pub const Parser = struct {
             self.error_context_remaining = 2;
             return .error_location;
         }
-        if (std.mem.indexOf(u8, line, ": note:")) |_| {
+        if (std.mem.find(u8, line, ": note:")) |_| {
             self.in_std_frame_context = is_std_frame;
             // Start expecting 2 context lines (source + pointer)
             self.note_context_remaining = 2;
@@ -271,16 +271,16 @@ pub const Parser = struct {
         }
 
         // Command dump patterns
-        if (std.mem.indexOf(u8, line, "zig build-exe") != null) return .command_dump;
-        if (std.mem.indexOf(u8, line, "-Mroot=") != null) return .command_dump;
-        if (std.mem.indexOf(u8, line, "--cache-dir") != null) return .command_dump;
-        if (std.mem.indexOf(u8, line, "--listen=-") != null) return .command_dump;
+        if (std.mem.find(u8, line, "zig build-exe") != null) return .command_dump;
+        if (std.mem.find(u8, line, "-Mroot=") != null) return .command_dump;
+        if (std.mem.find(u8, line, "--cache-dir") != null) return .command_dump;
+        if (std.mem.find(u8, line, "--listen=-") != null) return .command_dump;
         if (std.mem.startsWith(u8, trimmed, "error: the following command failed")) return .command_dump;
 
         // Build summary patterns
         if (std.mem.startsWith(u8, trimmed, "Build Summary:")) return .build_summary;
-        if (std.mem.indexOf(u8, line, "transitive failure") != null) return .build_summary;
-        if (std.mem.indexOf(u8, line, "steps succeeded") != null) return .build_summary;
+        if (std.mem.find(u8, line, "transitive failure") != null) return .build_summary;
+        if (std.mem.find(u8, line, "steps succeeded") != null) return .build_summary;
         if (std.mem.startsWith(u8, trimmed, "error: the following build command failed")) return .final_error;
 
         // Build-system error: "error: ..." without file:line:col prefix
@@ -324,7 +324,7 @@ pub fn parseLocation(line: []const u8) ?Location {
 
     var marker_pos: ?usize = null;
     for (markers) |marker| {
-        if (std.mem.indexOf(u8, line, marker)) |pos| {
+        if (std.mem.find(u8, line, marker)) |pos| {
             marker_pos = pos;
             break;
         }
@@ -417,9 +417,9 @@ fn isTestPassLine(line: []const u8) bool {
     if (std.mem.endsWith(u8, line, "...OK")) return true;
 
     // Build system summary: "+- run test 3/3 passed, 0 failed" (all pass)
-    if (std.mem.indexOf(u8, line, "run test") != null and
-        std.mem.indexOf(u8, line, "passed") != null and
-        std.mem.indexOf(u8, line, "0 failed") != null)
+    if (std.mem.find(u8, line, "run test") != null and
+        std.mem.find(u8, line, "passed") != null and
+        std.mem.find(u8, line, "0 failed") != null)
     {
         return true;
     }
@@ -429,7 +429,7 @@ fn isTestPassLine(line: []const u8) bool {
 
 fn isTestFailLine(line: []const u8) bool {
     // Direct test runner: "2/2 main.test.name...FAIL (reason)"
-    if (std.mem.indexOf(u8, line, "...FAIL") != null) return true;
+    if (std.mem.find(u8, line, "...FAIL") != null) return true;
 
     return false;
 }
@@ -438,36 +438,36 @@ fn isTestFailLine(line: []const u8) bool {
 /// This is the detailed failure message (not the ...FAIL line)
 fn isTestFailHeader(line: []const u8) bool {
     // Pattern: error: '<test_name>' failed:
-    if (std.mem.indexOf(u8, line, "error: '") == null) return false;
-    if (std.mem.indexOf(u8, line, "' failed:") == null) return false;
+    if (std.mem.find(u8, line, "error: '") == null) return false;
+    if (std.mem.find(u8, line, "' failed:") == null) return false;
     return true;
 }
 
 /// Check if line is a test summary: "+- run test N/M passed, K failed"
 fn isTestSummaryLine(line: []const u8) bool {
-    return std.mem.indexOf(u8, line, "run test") != null and
-        std.mem.indexOf(u8, line, "passed") != null;
+    return std.mem.find(u8, line, "run test") != null and
+        std.mem.find(u8, line, "passed") != null;
 }
 
 /// Check if line contains expected/actual assertion values
 fn isExpectedValueLine(line: []const u8) bool {
-    const trimmed = std.mem.trimLeft(u8, line, " ");
+    const trimmed = std.mem.trimStart(u8, line, " ");
     // Pattern: "expected X, found Y"
     return std.mem.startsWith(u8, trimmed, "expected ") and
-        std.mem.indexOf(u8, trimmed, ", found ") != null;
+        std.mem.find(u8, trimmed, ", found ") != null;
 }
 
 /// Check if line is a stack trace location: "path:line:col: 0x... in func_name"
 /// Pattern: contains ".zig:" followed by digits, colon, digits, colon, space, "0x"
 fn isStackTraceLocation(line: []const u8) bool {
     // Must contain .zig: (a zig file location)
-    const zig_pos = std.mem.indexOf(u8, line, ".zig:") orelse return false;
+    const zig_pos = std.mem.find(u8, line, ".zig:") orelse return false;
 
     // After .zig: we expect "line:col: 0x" pattern
     const after_zig = line[zig_pos + 5 ..];
 
     // Find the ": 0x" pattern that indicates a stack trace address
-    if (std.mem.indexOf(u8, after_zig, ": 0x")) |_| {
+    if (std.mem.find(u8, after_zig, ": 0x")) |_| {
         return true;
     }
 
@@ -485,11 +485,11 @@ pub fn extractTestName(line: []const u8) ?struct { start: u16, len: u16 } {
     const start_marker = "error: '";
     const end_marker = "' failed:";
 
-    const marker_pos = std.mem.indexOf(u8, line, start_marker) orelse return null;
+    const marker_pos = std.mem.find(u8, line, start_marker) orelse return null;
     const name_start = marker_pos + start_marker.len;
 
     const after_name = line[name_start..];
-    const name_len = std.mem.indexOf(u8, after_name, end_marker) orelse return null;
+    const name_len = std.mem.find(u8, after_name, end_marker) orelse return null;
 
     const start: u16 = @intCast(name_start);
     const len: u16 = @intCast(name_len);
@@ -513,14 +513,14 @@ pub fn extractExpectedActual(line: []const u8) ?struct {
     const found_marker = ", found ";
 
     // Find "expected " in the line
-    const expected_pos = std.mem.indexOf(u8, line, expected_marker) orelse return null;
+    const expected_pos = std.mem.find(u8, line, expected_marker) orelse return null;
 
     // The value starts right after "expected "
     const value_start = expected_pos + expected_marker.len;
     const after_expected = line[value_start..];
 
     // Find ", found " after the expected value
-    const comma_pos = std.mem.indexOf(u8, after_expected, found_marker) orelse return null;
+    const comma_pos = std.mem.find(u8, after_expected, found_marker) orelse return null;
 
     const expected_start: u16 = @intCast(value_start);
     const expected_len: u16 = @intCast(comma_pos);

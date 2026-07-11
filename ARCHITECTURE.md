@@ -45,10 +45,10 @@ The few heap resources follow **paired init/deinit**:
 
 ```zig
 // In App.init():
-app.tty = try vaxis.Tty.init(&app.tty_buf);
+app.tty = try vaxis.Tty.init(io, &app.tty_buf);
 errdefer app.tty.deinit();
 
-app.vx = try vaxis.Vaxis.init(alloc, .{});
+app.vx = try vaxis.Vaxis.init(io, alloc, environ_map, .{});
 errdefer app.vx.deinit(alloc, app.tty.writer());
 
 // In App.deinit():
@@ -59,7 +59,7 @@ self.tty.deinit();
 Temporary allocations (like build output) use `defer`:
 
 ```zig
-var result = try runBuildCmd(self.alloc, args);
+var result = try runBuildCmd(self.alloc, self.io, args);
 defer result.deinit(self.alloc);  // Always freed
 ```
 
@@ -175,7 +175,7 @@ comptime {
 
 Hand-written matchers classify each line of `zig build` output.
 
-- `classify()` — Determines LineKind using `std.mem.indexOf`, `std.mem.startsWith`
+- `classify()` — Determines LineKind using `std.mem.find`, `std.mem.startsWith`
 - `parseLocation()` — Extracts `path:line:col` from error messages
 - `extractTestName()` — Pulls test name from failure headers
 - Tracks parser state for context-sensitive classification (note/error context lines)
@@ -347,40 +347,48 @@ Builds run in a background thread, keeping the UI responsive:
 
 ```zig
 pub fn run(self: *App) !void {
-    var loop: vaxis.Loop(Event) = .{ .tty = &self.tty, .vaxis = &self.vx };
-    try loop.init();
+    var loop: vaxis.Loop(Event) = vaxis.Loop(Event).init(self.io, &self.tty, &self.vx);
+
+    // Install resize handler so SIGWINCH is delivered as events
+    try loop.installResizeHandler();
+    defer loop.uninstallResizeHandler();
+
     try loop.start();
+    defer loop.stop();
 
     try self.vx.enterAltScreen(writer);
-    try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
+    defer self.vx.exitAltScreen(writer) catch {};
+    try self.vx.queryTerminal(writer, std.Io.Duration.fromSeconds(1));
 
-    // Start initial build in background thread
     self.startBuild();
 
     while (self.state != .quitting) {
-        while (loop.tryEvent()) |event| {
+        // Drain events. Persistent queue errors unwind App.run so defers
+        // restore terminal/loop state and deinit cancels builds.
+        while (try loop.tryEvent()) |event| {
             self.handleEvent(event);
         }
 
-        // Check if background build completed (non-blocking atomic check)
         if (self.build_complete.load(.seq_cst) and self.state == .building) {
             self.finishBuild();
         }
 
-        // Only start new build when idle
-        if (self.state == .idle and self.watcher.checkForChanges()) {
+        if (self.state == .idle and self.watcher.checkForChanges(self.io)) {
             self.startBuild();
         }
 
         if (self.needs_redraw) {
             self.renderView();
-            self.vx.render(writer);
+            try self.vx.render(writer);
+            try writer.flush();
         }
 
-        std.Thread.sleep(16 * std.time.ns_per_ms);  // ~60fps
+        std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(16), .awake) catch {
+            self.state = .quitting;
+        };
     }
 
-    self.cancelBuild();  // Clean up any running build
+    self.cancelBuild();
 }
 ```
 
@@ -389,9 +397,27 @@ pub fn run(self: *App) !void {
 - `build_child_pid: std.atomic.Value(i32)` — stores child PID/PGID for cancellation
 - `build_error: std.atomic.Value(bool)` — set by worker on spawn/collect/wait failures
 
+**Process ownership discipline**: The Windows job handle and POSIX child PID use atomic
+`swap(0)` to transfer single-owner cleanup responsibility between the worker thread and
+the cancellation path. This prevents double-close races: only the owner that wins the
+`swap` terminates and closes the handle.
+
 **Process group cancellation**: `zig build` spawns many child processes. Killing only the parent leaves orphans running! The solution:
-1. After `spawn()`, call `setpgid(pid, pid)` to make child its own process group leader
+1. Use `.pgid = 0` at spawn time on POSIX; Zig 0.16 performs `setpgid(0, 0)` in the child before `exec`
 2. On cancel, `kill(-pid, SIGKILL)` kills the entire process group (negative PID = group)
+3. On Windows, spawn the child suspended, assign to a Job Object, publish the handle,
+   then resume via `kernel32 ResumeThread` — no early-descendant race
+4. Cancellation uses `atomic.swap(0)` to take ownership of the PID/handle; the worker
+   thread uses the same discipline, ensuring exactly one side performs termination
+
+**Bounded dual-stream draining**: The cancellable build helper uses `std.Io.File.MultiReader`
+with the `fill`/`reader` pattern so neither pipe can block the child. Both stdout and
+stderr are bounded independently: unused stdout is counted and discarded after each
+`fill()`, while stderr is retained for diagnostics. If either cumulative stream exceeds
+`MAX_TEXT_SIZE`, the process group or job is terminated (via atomic take of the handle),
+the child is waited, and empty output is returned with `error_out` set — oversized
+buffers are never returned as normal results. On success, only stderr is returned to
+the application.
 
 **PID race mitigation**: If user quits immediately after build starts, the worker thread may not have stored the PID yet. `cancelBuild()` spins up to `CANCEL_PID_WAIT_MS` (50ms) waiting for PID. If still not available, we proceed to `join()` which may block. In practice, `spawn()` completes in microseconds.
 

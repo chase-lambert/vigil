@@ -44,6 +44,7 @@ pub fn build(b: *std.Build) void {
     const test_modules = [_][]const u8{
         "src/app.zig",
         "src/input.zig",
+        "src/main.zig",
         "src/parse.zig",
         "src/render.zig",
         "src/types.zig",

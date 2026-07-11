@@ -57,8 +57,14 @@ var global_report: types.Report = types.Report.init();
 /// Main application state.
 /// Now small enough for stack allocation since Report is global.
 pub const App = struct {
+    // I/O handle (Zig 0.16)
+    io: std.Io,
+
     // Allocator (still needed for vaxis internals and process output)
     alloc: std.mem.Allocator,
+
+    // Environment map (read-only, from std.process.Init)
+    environ_map: *std.process.Environ.Map,
 
     // Core state (report is global, not stored here)
     view: types.ViewState,
@@ -111,9 +117,29 @@ pub const App = struct {
         return if (u != 0) @ptrFromInt(u) else null;
     }
 
-    pub fn init(alloc: std.mem.Allocator) !App {
+    // =========================================================================
+    // Atomic take helpers (single-owner discipline for process group/job)
+    // =========================================================================
+
+    /// Atomically take the Windows job handle. Exactly one caller wins the
+    /// non-zero value and must terminate + close it.
+    inline fn takeJobHandle(self: *App) usize {
+        if (builtin.os.tag == .windows) return self.build_job_handle.swap(0, .acq_rel);
+        return 0;
+    }
+
+    /// Atomically take the POSIX child PID. Exactly one caller wins the
+    /// non-zero value and must terminate the process group.
+    inline fn takeChildPid(self: *App) i32 {
+        if (builtin.os.tag == .windows) return 0;
+        return self.build_child_pid.swap(0, .acq_rel);
+    }
+
+    pub fn init(io: std.Io, alloc: std.mem.Allocator, environ_map: *std.process.Environ.Map) !App {
         var app = App{
+            .io = io,
             .alloc = alloc,
+            .environ_map = environ_map,
             .view = types.ViewState.init(),
             .watcher = watch.Watcher.init(types.WatchConfig.init()),
             .build_args_buf = undefined,
@@ -132,11 +158,11 @@ pub const App = struct {
             .spawn_failed = false,
         };
 
-        app.tty = try vaxis.Tty.init(&app.tty_buf);
+        app.tty = try vaxis.Tty.init(io, &app.tty_buf);
         errdefer app.tty.deinit();
 
-        // Note: Vaxis.init no longer takes TTY - they're connected via Loop in run()
-        app.vx = try vaxis.Vaxis.init(alloc, .{});
+        // Vaxis.init in libvaxis 0.16 takes io, alloc, env_map, opts
+        app.vx = try vaxis.Vaxis.init(io, alloc, environ_map, .{});
         // Use legacy SGR format (semicolons) for broader terminal compatibility.
         // Standard format uses colons which many terminals can't parse (Mac Terminal, IntelliJ).
         app.vx.sgr = .legacy;
@@ -188,30 +214,27 @@ pub const App = struct {
     /// Detect project info from build.zig.zon in current directory.
     fn detectProject(self: *App) void {
         // Get current working directory as project root
-        if (std.fs.cwd().realpathAlloc(self.alloc, ".")) |cwd| {
-            defer self.alloc.free(cwd);
+        // Use std.process.currentPath with stack scratch buffer (Zig 0.16)
+        var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        if (std.process.currentPath(self.io, &path_buf)) |cwd_len| {
+            const cwd = path_buf[0..cwd_len];
             const len = @min(cwd.len, self.project_root.len);
             @memcpy(self.project_root[0..len], cwd[0..len]);
             self.project_root_len = @intCast(len);
         } else |_| {}
 
         // Try to read build.zig.zon and extract name
-        const file = std.fs.cwd().openFile("build.zig.zon", .{}) catch {
-            // Fallback: use directory name as project name
-            self.extractDirName();
-            return;
-        };
-        defer file.close();
-
-        // Read first 1KB (name should be near the top)
+        // Use Dir.readFile for simple buffered file read (Zig 0.16)
         var buf: [1024]u8 = undefined;
-        const bytes_read = file.readAll(&buf) catch {
+        const cwd_dir = std.Io.Dir.cwd();
+        const contents = cwd_dir.readFile(self.io, "build.zig.zon", &buf) catch {
+            // Fallback: use directory name as project name
             self.extractDirName();
             return;
         };
 
         // Parse ".name = .identifier" (Zig 0.15 enum literal style)
-        if (parseZonName(buf[0..bytes_read])) |name| {
+        if (parseZonName(contents)) |name| {
             const len = @min(name.len, self.project_name.len);
             @memcpy(self.project_name[0..len], name[0..len]);
             self.project_name_len = @intCast(len);
@@ -267,7 +290,7 @@ pub const App = struct {
         else
             defaultBuildArgs();
 
-        var result = try runBuildCmd(self.alloc, args);
+        var result = try runBuildCmd(self.alloc, self.io, args);
         defer result.deinit(self.alloc);
 
         const rpt = self.report();
@@ -279,7 +302,7 @@ pub const App = struct {
         self.needs_redraw = true;
 
         // Update watcher to avoid immediate re-trigger
-        self.watcher.snapshot();
+        self.watcher.snapshot(self.io);
     }
 
     /// Start a build in a background thread. Returns immediately.
@@ -325,6 +348,8 @@ pub const App = struct {
         // Windows: stores job handle in build_job_handle for Job Object termination
         const result = runBuildCmdCancellable(
             app.alloc,
+            app.io,
+            app.environ_map,
             args,
             if (builtin.os.tag == .windows) {} else &app.build_child_pid,
             if (builtin.os.tag == .windows) &app.build_job_handle else {},
@@ -346,12 +371,12 @@ pub const App = struct {
             self.build_thread = null;
         }
 
-        // Close job handle on Windows (process completed, just cleanup)
+        // Atomically take and close job handle on Windows (worker has
+        // already reaped the child; we own the final handle cleanup).
         if (builtin.os.tag == .windows) {
-            const job_usize = self.build_job_handle.load(.acquire);
+            const job_usize = self.takeJobHandle();
             if (usizeToHandle(job_usize)) |job| {
                 windows.CloseHandle(job);
-                self.build_job_handle.store(0, .release);
             }
         }
 
@@ -371,7 +396,7 @@ pub const App = struct {
             self.build_exit_code = null;
 
             self.view.reset();
-            self.watcher.snapshot();
+            self.watcher.snapshot(self.io);
         }
 
         self.state = .idle;
@@ -396,26 +421,25 @@ pub const App = struct {
             var attempts: u8 = 0;
             if (builtin.os.tag == .windows) {
                 while (self.build_job_handle.load(.acquire) == 0 and attempts < types.CANCEL_PID_WAIT_MS) : (attempts += 1) {
-                    std.Thread.sleep(1 * std.time.ns_per_ms);
+                    std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(1), .awake) catch break;
                 }
             } else {
                 while (self.build_child_pid.load(.acquire) == 0 and attempts < types.CANCEL_PID_WAIT_MS) : (attempts += 1) {
-                    std.Thread.sleep(1 * std.time.ns_per_ms);
+                    std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(1), .awake) catch break;
                 }
             }
         }
 
-        // Kill child process tree - this causes collectOutput to return.
-        // This is critical because zig build spawns many child processes!
+        // Atomically take ownership of the process group/job handle so the worker
+        // cannot double-close. The winner terminates and closes.
         if (builtin.os.tag == .windows) {
-            // Windows: Terminate job object (kills all descendants atomically)
-            const job_usize = self.build_job_handle.load(.acquire);
+            const job_usize = self.takeJobHandle();
             if (usizeToHandle(job_usize)) |job| {
                 windows_job.terminateAndClose(job);
             }
         } else {
             // POSIX: Kill entire process group (negative PID = process group)
-            const pid = self.build_child_pid.load(.acquire);
+            const pid = self.takeChildPid();
             if (pid > 0) {
                 std.posix.kill(-pid, std.posix.SIG.KILL) catch {};
             }
@@ -427,14 +451,15 @@ pub const App = struct {
             self.build_thread = null;
         }
 
-        // Clear handles to maintain invariant: 0 = no active handle.
-        // On Windows, terminateAndClose() already closed the handle, but we still
-        // zero the atomic for consistency. On POSIX, kill() doesn't clear anything.
-        // This is intentionally redundant on Windows — idempotent and defensive.
+        // After join, atomically take and close any remaining handle
+        // (a handle published after our 50ms spin must still be cleaned up).
         if (builtin.os.tag == .windows) {
-            self.build_job_handle.store(0, .release);
+            const job_usize = self.takeJobHandle();
+            if (usizeToHandle(job_usize)) |job| {
+                windows_job.terminateAndClose(job);
+            }
         } else {
-            self.build_child_pid.store(0, .release);
+            _ = self.takeChildPid();
         }
 
         // Free any pending output from previous build
@@ -459,11 +484,13 @@ pub const App = struct {
 
         // Create Loop as a local variable - it stores pointers to tty and vx,
         // so it must be created here where self has a stable address.
-        var loop: vaxis.Loop(Event) = .{ .tty = &self.tty, .vaxis = &self.vx };
+        // Loop.init now takes io (Zig 0.16 / libvaxis 0.16)
+        var loop: vaxis.Loop(Event) = vaxis.Loop(Event).init(self.io, &self.tty, &self.vx);
 
-        // Initialize the loop FIRST (sets up signal handlers for window resize)
-        // This must happen before starting the input thread
-        try loop.init();
+        // Install the resize handler so SIGWINCH is delivered as events.
+        // Defer uninstall so the handler is cleaned up on exit.
+        try loop.installResizeHandler();
+        defer loop.uninstallResizeHandler();
 
         // Start input thread BEFORE entering alt screen or querying terminal
         // This ensures query responses can be read
@@ -476,15 +503,18 @@ pub const App = struct {
 
         // Query terminal capabilities and wait for responses
         // Using queryTerminal (not queryTerminalSend) which properly waits
-        // The 1 second timeout allows time for terminal to respond
-        try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
+        // The timeout now uses std.Io.Duration (Zig 0.16)
+        try self.vx.queryTerminal(writer, std.Io.Duration.fromSeconds(1));
 
         // Build runs in background thread - TUI appears immediately
         self.startBuild();
 
         while (self.state != .quitting) {
-            // Process all pending events (non-blocking)
-            while (loop.tryEvent()) |event| {
+            // Process all pending events (non-blocking).
+            // Loop.tryEvent is now fallible (Zig 0.16 / libvaxis 0.16).
+            // Persistent queue errors unwind App.run so defers restore
+            // terminal/loop state and deinit cancels builds.
+            while (try loop.tryEvent()) |event| {
                 self.handleEvent(event);
             }
 
@@ -492,7 +522,7 @@ pub const App = struct {
                 self.finishBuild();
             }
 
-            if (self.state == .idle and self.watcher.checkForChanges()) {
+            if (self.state == .idle and self.watcher.checkForChanges(self.io)) {
                 self.startBuild();
             }
 
@@ -503,8 +533,11 @@ pub const App = struct {
                 self.needs_redraw = false;
             }
 
-            // Sleep to avoid busy-waiting
-            std.Thread.sleep(16 * std.time.ns_per_ms); // ~60fps
+            // Sleep to avoid busy-waiting. I/O cancellation means the app is
+            // shutting down; swallowing it would turn this loop into a spin.
+            std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(16), .awake) catch {
+                self.state = .quitting;
+            }; // ~60fps
         }
 
         // Cleanup: cancel any running build before exit
@@ -559,7 +592,7 @@ pub const App = struct {
                 self.needs_redraw = true;
             },
             .toggle_watch => {
-                self.watcher.toggle();
+                self.watcher.toggle(self.io);
                 self.needs_redraw = true;
             },
             .toggle_wrap => {
@@ -813,7 +846,7 @@ pub const App = struct {
 
 /// Result of running a build command.
 pub const BuildResult = struct {
-    /// Combined stdout + stderr output
+    /// stderr output (Zig compiler writes diagnostics to stderr)
     output: []const u8,
     /// Exit code (null if killed/crashed)
     exit_code: ?u8,
@@ -826,28 +859,31 @@ pub const BuildResult = struct {
     }
 };
 
+/// Convert a process `Child.Term` to an optional exit code.
+pub fn termToExitCode(term: std.process.Child.Term) ?u8 {
+    return switch (term) {
+        .exited => |code| code,
+        .signal, .stopped, .unknown => null,
+    };
+}
+
 /// Zig outputs build/test errors to stderr; stdout is unused.
-fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult {
+fn runBuildCmd(alloc: std.mem.Allocator, io: std.Io, args: []const []const u8) !BuildResult {
     assert(args.len > 0);
 
-    const result = std.process.Child.run(.{
-        .allocator = alloc,
+    const result = std.process.run(alloc, io, .{
         .argv = args,
-        .max_output_bytes = types.MAX_TEXT_SIZE,
+        .stderr_limit = std.Io.Limit.limited(types.MAX_TEXT_SIZE),
+        .stdout_limit = std.Io.Limit.limited(types.MAX_TEXT_SIZE),
     });
 
     if (result) |r| {
         // Free stdout - we only care about stderr for build errors
         if (r.stdout.len > 0) alloc.free(r.stdout);
 
-        const exit_code: ?u8 = switch (r.term) {
-            .Exited => |code| code,
-            .Signal, .Stopped, .Unknown => null,
-        };
-
         return BuildResult{
             .output = r.stderr,
-            .exit_code = exit_code,
+            .exit_code = termToExitCode(r.term),
         };
     } else |_| {
         return BuildResult{
@@ -857,13 +893,58 @@ fn runBuildCmd(alloc: std.mem.Allocator, args: []const []const u8) !BuildResult 
     }
 }
 
+// =============================================================================
+// Cancellable build execution (Zig 0.16 spawn + MultiReader)
+// =============================================================================
+
+const ProcessTreeOwnership = struct {
+    pid: i32 = 0,
+    job: usize = 0,
+};
+
+/// Atomically claim ownership of the platform-specific process tree handle.
+fn takeProcessTree(
+    pid_out: if (builtin.os.tag == .windows) void else *std.atomic.Value(i32),
+    job_out: if (builtin.os.tag == .windows) *std.atomic.Value(usize) else void,
+) ProcessTreeOwnership {
+    return .{
+        .pid = if (builtin.os.tag == .windows) 0 else pid_out.swap(0, .acq_rel),
+        .job = if (builtin.os.tag == .windows) job_out.swap(0, .acq_rel) else 0,
+    };
+}
+
+/// Terminate a process tree after its platform-specific handle has been claimed.
+fn terminateProcessTree(ownership: ProcessTreeOwnership) void {
+    if (builtin.os.tag == .windows) {
+        if (App.usizeToHandle(ownership.job)) |job| windows_job.terminateAndClose(job);
+    } else {
+        if (ownership.pid > 0) std.posix.kill(-ownership.pid, std.posix.SIG.KILL) catch {};
+    }
+}
+
+/// Terminate the owned process tree, reap the child, and return a failed build.
+fn failBuild(
+    child: *std.process.Child,
+    io: std.Io,
+    error_out: *std.atomic.Value(bool),
+    ownership: ProcessTreeOwnership,
+) BuildResult {
+    terminateProcessTree(ownership);
+    // kill is idempotent, uncancelable, and reaps the child.
+    child.kill(io);
+    error_out.store(true, .release);
+    return BuildResult{ .output = "", .exit_code = null };
+}
+
 /// Run a build command with cancellation support.
 /// On POSIX: Stores the child PID atomically so it can be killed from another thread.
-/// On Windows: Creates a Job Object and stores the handle for process tree termination.
+/// On Windows: Spawns suspended, assigns to a Job Object, publishes handle, resumes.
 /// Sets error_out to true if spawn/collection/wait fails (not just "build had errors").
-/// Returns null output if the process was killed (cancelled).
+/// On output overrun, terminates the group/job and returns empty output with error_out set.
 fn runBuildCmdCancellable(
     alloc: std.mem.Allocator,
+    io: std.Io,
+    environ_map: *std.process.Environ.Map,
     args: []const []const u8,
     pid_out: if (builtin.os.tag == .windows) void else *std.atomic.Value(i32),
     job_out: if (builtin.os.tag == .windows) *std.atomic.Value(usize) else void,
@@ -871,78 +952,148 @@ fn runBuildCmdCancellable(
 ) BuildResult {
     assert(args.len > 0);
 
-    // Initialize child process with pipes for output capture
-    var child = std.process.Child.init(args, alloc);
-    child.stdin_behavior = .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    child.spawn() catch {
+    // Spawn child process with piped stdout/stderr using Zig 0.16 spawn API.
+    // On Windows, start suspended so we can assign to the Job Object without
+    // an early-descendant race. POSIX uses .pgid = 0 (child becomes process
+    // group leader via setpgid(0,0) before exec).
+    const start_suspended: bool = builtin.os.tag == .windows;
+    const pgid: ?std.posix.pid_t = if (builtin.os.tag == .windows) null else @as(std.posix.pid_t, 0);
+    var child = std.process.spawn(io, .{
+        .argv = args,
+        .stdout = .pipe,
+        .stderr = .pipe,
+        .stdin = .ignore,
+        .pgid = pgid,
+        .start_suspended = start_suspended,
+        .environ_map = environ_map,
+    }) catch {
         error_out.store(true, .release);
         return BuildResult{ .output = "", .exit_code = null };
     };
 
-    // Set up process group/job for killing all descendants.
+    // Set up process group / job for killing all descendants.
     // When zig build runs, it spawns many child processes. If we only kill
     // the parent, the children become orphaned and keep running!
     if (builtin.os.tag == .windows) {
-        // Windows: Create job object and assign child process.
-        // All descendants will automatically be added to the job.
-        if (windows_job.createAndAssign(child.id)) |job| {
+        // Windows: Assign suspended child to Job Object, then resume.
+        if (child.id) |proc_handle| {
+            const job = windows_job.createAndAssign(proc_handle) orelse {
+                child.kill(io);
+                error_out.store(true, .release);
+                return BuildResult{ .output = "", .exit_code = null };
+            };
+            // Publish handle BEFORE resume so cancelBuild can see it
             job_out.store(App.handleToUsize(job), .release);
+
+            if (!windows_job.resumeThread(child.thread_handle)) {
+                // Resume failed — take back job, terminate, fail
+                const job_usize = job_out.swap(0, .acq_rel);
+                if (App.usizeToHandle(job_usize)) |j| windows_job.terminateAndClose(j);
+                child.kill(io);
+                error_out.store(true, .release);
+                return BuildResult{ .output = "", .exit_code = null };
+            }
+        } else {
+            child.kill(io);
+            error_out.store(true, .release);
+            return BuildResult{ .output = "", .exit_code = null };
         }
     } else {
-        // POSIX: Make child its own process group leader (pgid = pid),
-        // so we can later kill(-pid) to terminate the entire group.
-        const child_pid: std.posix.pid_t = @intCast(child.id);
-        std.posix.setpgid(child_pid, child_pid) catch {};
+        // POSIX: child already is process group leader from .pgid = 0
+        const child_pid: std.posix.pid_t = if (child.id) |pid| pid else {
+            child.kill(io);
+            error_out.store(true, .release);
+            return BuildResult{ .output = "", .exit_code = null };
+        };
         pid_out.store(child_pid, .release);
     }
 
-    // Collect output - blocks until EOF (process exits or is killed)
-    // In Zig 0.15, ArrayList is unmanaged by default - allocator passed to methods
-    var stdout_list: std.ArrayList(u8) = .empty;
-    var stderr_list: std.ArrayList(u8) = .empty;
-    defer stdout_list.deinit(alloc); // We only care about stderr
-
-    child.collectOutput(alloc, &stdout_list, &stderr_list, types.MAX_TEXT_SIZE) catch {
-        // Collection failed (unlikely) - clear handle and wait
-        if (builtin.os.tag == .windows) {
-            job_out.store(0, .release);
-        } else {
-            pid_out.store(0, .release);
-        }
-        _ = child.wait() catch {};
-        stderr_list.deinit(alloc);
-        error_out.store(true, .release);
-        return BuildResult{ .output = "", .exit_code = null };
+    // Pipes must be present after pipe-mode spawn.
+    const stdout_pipe = child.stdout orelse {
+        return failBuild(&child, io, error_out, takeProcessTree(pid_out, job_out));
+    };
+    const stderr_pipe = child.stderr orelse {
+        return failBuild(&child, io, error_out, takeProcessTree(pid_out, job_out));
     };
 
-    // Clear PID before wait - process has finished or been killed
-    // Note: On Windows, we DON'T clear the job handle here - finishBuild() will close it
-    if (builtin.os.tag != .windows) {
-        pid_out.store(0, .release);
+    // Use MultiReader to drain both pipes without deadlock (Zig 0.16).
+    var mr_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
+    var mr: std.Io.File.MultiReader = undefined;
+    mr.init(alloc, io, mr_buffer.toStreams(), &.{ stdout_pipe, stderr_pipe });
+
+    const stdout_reader = mr.reader(0);
+    const stderr_reader = mr.reader(1);
+
+    var limit_reached = false;
+    var stdout_len: usize = 0;
+
+    // Fill buffers until both streams end or either output limit is hit.
+    while (true) {
+        mr.fill(64, .none) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => {
+                // I/O error during fill — terminate group, deinit MultiReader, reap
+                mr.deinit();
+                return failBuild(&child, io, error_out, takeProcessTree(pid_out, job_out));
+            },
+        };
+
+        // stdout is never displayed, so count and discard it as it arrives
+        // rather than retaining up to MAX_TEXT_SIZE bytes. stderr is retained.
+        const stdout_buffered = stdout_reader.buffered().len;
+        stdout_len += stdout_buffered;
+        _ = stdout_reader.discard(.limited(stdout_buffered)) catch unreachable;
+
+        if (stdout_len > types.MAX_TEXT_SIZE or stderr_reader.buffered().len > types.MAX_TEXT_SIZE) {
+            limit_reached = true;
+            break;
+        }
     }
 
-    // Reap the process
-    const term = child.wait() catch {
-        stderr_list.deinit(alloc);
+    // Stream errors must be checked before deinitializing MultiReader.
+    mr.checkAnyError() catch {
+        mr.deinit();
+        return failBuild(&child, io, error_out, takeProcessTree(pid_out, job_out));
+    };
+
+    // On limit reached, terminate the process group/job before waiting.
+    if (limit_reached) {
+        mr.deinit();
+        terminateProcessTree(takeProcessTree(pid_out, job_out));
+    }
+
+    // Keep POSIX PID published until after wait so cancellation can still
+    // terminate a child that closes pipes before exiting.
+    // On Windows, the job handle stays published for cancelBuild/finishBuild.
+
+    // Wait and reap the child
+    const term = child.wait(io) catch {
+        // wait failed — atomically take remaining pid/job, terminate tree, fallback reap
+        if (!limit_reached) mr.deinit();
+        return failBuild(&child, io, error_out, takeProcessTree(pid_out, job_out));
+    };
+
+    // Successfully reaped — clear PID (Windows job handle stays for finishBuild)
+    if (builtin.os.tag != .windows) {
+        _ = pid_out.swap(0, .release);
+    }
+
+    const exit_code = termToExitCode(term);
+
+    // On limit reached, discard accumulated output and report error
+    if (limit_reached) {
+        error_out.store(true, .release);
+        return BuildResult{ .output = "", .exit_code = null };
+    }
+
+    // Keep stderr (Zig compiler outputs diagnostics there); stdout was drained.
+    const stderr_slice = mr.toOwnedSlice(1) catch {
+        mr.deinit();
         error_out.store(true, .release);
         return BuildResult{ .output = "", .exit_code = null };
     };
-
-    const exit_code: ?u8 = switch (term) {
-        .Exited => |code| code,
-        .Signal, .Stopped, .Unknown => null,
-    };
-
-    // Transfer ownership of stderr to caller
-    const output = stderr_list.toOwnedSlice(alloc) catch {
-        // Allocation failed - must free the list's buffer to avoid leak
-        stderr_list.deinit(alloc);
-        return BuildResult{ .output = "", .exit_code = exit_code };
-    };
-    return BuildResult{ .output = output, .exit_code = exit_code };
+    mr.deinit();
+    return BuildResult{ .output = stderr_slice, .exit_code = exit_code };
 }
 
 /// Default build command when none specified.
@@ -958,7 +1109,7 @@ fn defaultBuildArgs() []const []const u8 {
 /// Handles ".name = .identifier" (Zig 0.15) and ".name = \"string\"" (older)
 pub fn parseZonName(content: []const u8) ?[]const u8 {
     const name_marker = ".name = ";
-    const pos = std.mem.indexOf(u8, content, name_marker) orelse return null;
+    const pos = std.mem.find(u8, content, name_marker) orelse return null;
     const after_marker = content[pos + name_marker.len ..];
 
     if (after_marker.len == 0) return null;
@@ -977,7 +1128,7 @@ pub fn parseZonName(content: []const u8) ?[]const u8 {
     } else if (after_marker[0] == '"') {
         // String literal: .name = "string"
         const start = 1;
-        const end_quote = std.mem.indexOf(u8, after_marker[start..], "\"") orelse return null;
+        const end_quote = std.mem.find(u8, after_marker[start..], "\"") orelse return null;
         return after_marker[start .. start + end_quote];
     }
 
@@ -1026,6 +1177,136 @@ test "parseZonName - name with underscores" {
     const name = parseZonName(content);
     try std.testing.expect(name != null);
     try std.testing.expectEqualStrings("my_cool_project", name.?);
+}
+
+// =============================================================================
+// termToExitCode Tests
+// =============================================================================
+
+test "termToExitCode - all tags" {
+    try std.testing.expectEqual(@as(?u8, 0), termToExitCode(.{ .exited = 0 }));
+    try std.testing.expectEqual(@as(?u8, 42), termToExitCode(.{ .exited = 42 }));
+    try std.testing.expectEqual(@as(?u8, null), termToExitCode(.{ .signal = .KILL }));
+    try std.testing.expectEqual(@as(?u8, null), termToExitCode(.{ .stopped = .STOP }));
+    try std.testing.expectEqual(@as(?u8, null), termToExitCode(.{ .unknown = 9 }));
+}
+
+// =============================================================================
+// Process Tests
+// =============================================================================
+
+test "runBuildCmd - synchronous subprocess" {
+    if (!std.process.can_spawn) return error.SkipZigTest;
+
+    var result = runBuildCmd(
+        std.testing.allocator,
+        std.testing.io,
+        &[_][]const u8{ "echo", "hello" },
+    ) catch |err| switch (err) {
+        // OK if echo is not available
+        error.FileNotFound => return error.SkipZigTest,
+        else => return err,
+    };
+    defer result.deinit(std.testing.allocator);
+    // echo writes to stdout; stderr should be empty
+    try std.testing.expectEqual(@as(usize, 0), result.output.len);
+    try std.testing.expectEqual(@as(?u8, 0), result.exit_code);
+}
+
+test "runBuildCmdCancellable - simultaneous drain, stderr returned" {
+    if (!std.process.can_spawn) return error.SkipZigTest;
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const alloc = std.testing.allocator;
+    var pid: std.atomic.Value(i32) = std.atomic.Value(i32).init(0);
+    var err_flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+    defer {
+        if (pid.load(.acquire) > 0) std.posix.kill(-pid.load(.acquire), .KILL) catch {};
+    }
+
+    var env_map = std.process.Environ.Map.init(alloc);
+    defer env_map.deinit();
+
+    // Write distinct data to stdout and stderr; verify only stderr returned
+    var result = runBuildCmdCancellable(
+        alloc,
+        std.testing.io,
+        &env_map,
+        &.{ "sh", "-c", "echo stdout_data; echo stderr_data >&2" },
+        &pid,
+        {},
+        &err_flag,
+    );
+    defer result.deinit(alloc);
+
+    try std.testing.expect(!err_flag.load(.acquire));
+    try std.testing.expect(result.output.len > 0);
+    // stderr should contain our data; stdout should not be in output
+    try std.testing.expect(std.mem.find(u8, result.output, "stderr_data") != null);
+    try std.testing.expect(std.mem.find(u8, result.output, "stdout_data") == null);
+    try std.testing.expect(pid.load(.acquire) == 0);
+}
+
+test "runBuildCmdCancellable - stderr over limit" {
+    if (!std.process.can_spawn) return error.SkipZigTest;
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const alloc = std.testing.allocator;
+    var pid: std.atomic.Value(i32) = std.atomic.Value(i32).init(0);
+    var err_flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+    defer {
+        if (pid.load(.acquire) > 0) std.posix.kill(-pid.load(.acquire), .KILL) catch {};
+    }
+
+    var env_map = std.process.Environ.Map.init(alloc);
+    defer env_map.deinit();
+
+    // Write >MAX_TEXT_SIZE directly to stderr (not through stdout redirection)
+    var result = runBuildCmdCancellable(
+        alloc,
+        std.testing.io,
+        &env_map,
+        &.{ "sh", "-c", "dd if=/dev/zero bs=1024 count=1024 >&2" },
+        &pid,
+        {},
+        &err_flag,
+    );
+    defer result.deinit(alloc);
+
+    try std.testing.expect(err_flag.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 0), result.output.len);
+    try std.testing.expect(pid.load(.acquire) == 0);
+}
+
+test "runBuildCmdCancellable - stdout over limit" {
+    if (!std.process.can_spawn) return error.SkipZigTest;
+    if (builtin.os.tag == .windows or builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const alloc = std.testing.allocator;
+    var pid: std.atomic.Value(i32) = std.atomic.Value(i32).init(0);
+    var err_flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
+    defer {
+        if (pid.load(.acquire) > 0) std.posix.kill(-pid.load(.acquire), .KILL) catch {};
+    }
+
+    var env_map = std.process.Environ.Map.init(alloc);
+    defer env_map.deinit();
+
+    // Generate >MAX_TEXT_SIZE on stdout, minimal stderr
+    var result = runBuildCmdCancellable(
+        alloc,
+        std.testing.io,
+        &env_map,
+        &.{ "sh", "-c", "dd if=/dev/zero bs=1024 count=1024 2>/dev/null; echo done >&2" },
+        &pid,
+        {},
+        &err_flag,
+    );
+    defer result.deinit(alloc);
+
+    try std.testing.expect(err_flag.load(.acquire));
+    try std.testing.expectEqual(@as(usize, 0), result.output.len);
+    try std.testing.expect(pid.load(.acquire) == 0);
 }
 
 // =============================================================================
