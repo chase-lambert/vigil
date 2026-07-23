@@ -1,17 +1,17 @@
 {
-  "vaxis-0.5.1-BWNV_GMyCQBtxcEkSAEb_EXbm8A24FWJFC7fXiWUVx9Y": {
+  "vaxis-0.6.0-BWNV_Gz5CQBTx7g34RYMPTL-bJhsFCU3ECHQ-CZlBVsn": {
     "name": "vaxis",
-    "url": "git+https://github.com/rockorager/libvaxis#5915f33c1a7a184d3fb2aa39f087c1e6864a4308",
-    "hash": "sha256-ByPQNHaT2JtCaoSV45mXL+YA0WprXL1R7jNdYDGItHI="
+    "url": "git+https://github.com/rockorager/libvaxis#ca781b3c01f44a92e5331652823b5a9ce445be96",
+    "hash": "sha256-tQvkg1dGR4DTnPxvOp+t6ozT/4L3lmdW3z+lc97OhMY="
   },
-  "zigimg-0.1.0-8_eo2vUZFgAAtN1c6dAO5DdqL0d4cEWHtn6iR5ucZJti": {
+  "zigimg-0.1.0-8_eo2oyaFwBZwJpmqPkCfVXWBrHcqbYwmrp1I6bTD3lI": {
     "name": "zigimg",
-    "url": "git+https://github.com/zigimg/zigimg#eab2522c023b9259db8b13f2f90d609b7437e5f6",
-    "hash": "sha256-e42T/ZmRzuzWAhwWkcWScukcOd6rNZ1VK1wk0XGTVKs="
+    "url": "git+https://github.com/zigimg/zigimg#d695acd97c02e57bb151e8f659d1280f5cd6ca70",
+    "hash": "sha256-aGLZkHpkVtMNcaaujqhr88FkroWlBUqyr5VoHvdnoTc="
   },
-  "uucode-0.1.0-ZZjBPj96QADXyt5sqwBJUnhaDYs_qBeeKijZvlRa0eqM": {
+  "uucode-0.2.0-ZZjBPlK5VADj7fdoq7G8LIHzD5o6FSkcBXXrRWr4jnrA": {
     "name": "uucode",
-    "url": "git+https://github.com/jacobsandlund/uucode#5f05f8f83a75caea201f12cc8ea32a2d82ea9732",
-    "hash": "sha256-1Eib3ZR5xDTRHurjTL8ZWwJVKcqZtcTclxM7kcBVGGU="
+    "url": "git+https://github.com/jacobsandlund/uucode#2826a37a4562284fdacd8fa029d49509cc9bffcd",
+    "hash": "sha256-PFceLiwd1tZ9WeeikyLHGKkEZcyw3zYuFP6vzd5VXtA="
   }
 }

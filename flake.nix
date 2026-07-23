@@ -6,7 +6,7 @@
   outputs = { zig2nix, ... }: let
     flake-utils = zig2nix.inputs.flake-utils;
   in (flake-utils.lib.eachDefaultSystem (system: let
-    env = zig2nix.outputs.zig-env.${system} { zig = zig2nix.outputs.packages.${system}.zig-0_15_2; };
+    env = zig2nix.outputs.zig-env.${system} { zig = zig2nix.outputs.packages.${system}.zig-0_16_0; };
     pkgs = env.pkgs;
     lib = pkgs.lib;
   in rec {
@@ -52,7 +52,7 @@
     # example: https://github.com/ralismark/nix-appimage
     apps.bundle = {
       type = "app";
-      program = "${packages.foreign}/bin/@SED_ZIG_BIN@";
+      program = "${packages.foreign}/bin/vigil";
     };
 
     # nix run .
@@ -63,9 +63,6 @@
 
     # nix run .#test
     apps.test = env.app [] "zig build test -- \"$@\"";
-
-    # nix run .#docs
-    apps.docs = env.app [] "zig build docs -- \"$@\"";
 
     # nix run .#zig2nix
     # Use `nix run path:.#zig2nix zon2lock` to update the zon2json-lock file.
