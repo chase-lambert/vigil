@@ -35,7 +35,7 @@ This project is also a learning exercise in [Data-Oriented Design](https://www.d
 
 ## Installation
 
-**Requires Zig 0.15.2** (latest stable).
+**Requires Zig 0.16.0** (latest stable).
 
 ```bash
 git clone https://github.com/chase-lambert/vigil
@@ -93,6 +93,7 @@ Vigil uses fixed-size buffers (~740KB for parsed output). Total memory usage is 
 |-------|-------|---------------------------|
 | Output lines | 8,192 | Additional lines dropped |
 | Text buffer | 512 KB | Parsing stops |
+| Build stdout/stderr | 512 KB each | Build process tree is terminated and reported failed |
 | Line length | 512 chars | Truncated |
 | Numbered errors | 255 | Capped at `[255]` badges |
 | Test failures | 255 | Structured display stops |
@@ -102,7 +103,7 @@ Vigil uses fixed-size buffers (~740KB for parsed output). Total memory usage is 
 
 **Debounce:** File changes within 100ms are batched into a single rebuild.
 
-**Large output:** If your build produces more than 8K lines, the output may be truncated. Try running `zig build 2>&1 | wc -l` to check, then address the root cause of excessive output.
+**Large output:** Vigil drains stdout and stderr concurrently so noisy builds cannot deadlock it. Either stream exceeding 512 KB terminates the build; output beyond 8K parsed lines may be truncated. Try running `zig build 2>&1 | wc -lc` to check, then address the root cause of excessive output.
 
 ## Architecture
 

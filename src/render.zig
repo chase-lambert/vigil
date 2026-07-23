@@ -311,7 +311,7 @@ fn countErrorsUpTo(report: *const types.Report, line_index: u16) u8 {
 /// Uses project_root to strip the absolute path prefix.
 fn cleanStackTraceLine(text: []const u8, project_root: []const u8) []const u8 {
     // First, find where the useful part ends (before ": 0x" memory address)
-    const end_pos = std.mem.indexOf(u8, text, ": 0x") orelse text.len;
+    const end_pos = std.mem.find(u8, text, ": 0x") orelse text.len;
     const path_part = text[0..end_pos];
 
     // Try to strip project root prefix (including trailing slash)
@@ -327,7 +327,7 @@ fn cleanStackTraceLine(text: []const u8, project_root: []const u8) []const u8 {
     }
 
     // Fallback: find "src/" to get relative path
-    if (std.mem.indexOf(u8, path_part, "src/")) |src_pos| {
+    if (std.mem.find(u8, path_part, "src/")) |src_pos| {
         return path_part[src_pos..];
     }
 
@@ -414,9 +414,9 @@ fn renderTestFailureLine(
     if (test_name.len == 0) {
         const line_text = report.lines()[line_idx].getText(text_buf);
         // Pattern: "error: 'test_name' failed:"
-        if (std.mem.indexOf(u8, line_text, "error: '")) |start| {
+        if (std.mem.find(u8, line_text, "error: '")) |start| {
             const name_start = start + 8;
-            if (std.mem.indexOf(u8, line_text[name_start..], "' failed:")) |name_end| {
+            if (std.mem.find(u8, line_text[name_start..], "' failed:")) |name_end| {
                 test_name = line_text[name_start..][0..name_end];
             }
         }

@@ -1,11 +1,12 @@
 .{
     .name = .vigil,
     .version = "1.0.0",
+    .minimum_zig_version = "0.16.0",
     .fingerprint = 0x4b3d7ac3b82dd494,
     .dependencies = .{
         .vaxis = .{
-            .url = "git+https://github.com/rockorager/libvaxis#5915f33c1a7a184d3fb2aa39f087c1e6864a4308",
-            .hash = "vaxis-0.5.1-BWNV_GMyCQBtxcEkSAEb_EXbm8A24FWJFC7fXiWUVx9Y",
+            .url = "git+https://github.com/rockorager/libvaxis#ca781b3c01f44a92e5331652823b5a9ce445be96",
+            .hash = "vaxis-0.6.0-BWNV_Gz5CQBTx7g34RYMPTL-bJhsFCU3ECHQ-CZlBVsn",
         },
     },
     .paths = .{
