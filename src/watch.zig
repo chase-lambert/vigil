@@ -137,7 +137,7 @@ fn getPathMtime(io: std.Io, path: []const u8) std.Io.Timestamp {
                         }
                     }
                 },
-                .directory => {
+                .directory, .sym_link => {
                     // Push subdirectory onto stack if we have room
                     if (stack_len < MAX_WATCH_DEPTH) {
                         if (top.dir.openDir(io, entry.name, .{ .iterate = true })) |sub_dir| {
