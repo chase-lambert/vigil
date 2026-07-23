@@ -3,3 +3,4 @@ zig-out/
 zig-pkg/
 CLAUDE.md
 .claude/
+result
