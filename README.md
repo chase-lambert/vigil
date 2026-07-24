@@ -63,6 +63,8 @@ All options are passed through to `zig build`. Use `-h` for help.
 
 > **Note**: `-D` options are project-specific. Options like `-Dtest-filter` only work if your `build.zig` exposes them via `b.option()`.
 
+> **Known bug:** switching jobs with `b`/`t` drops any extra CLI flags (so `vigil -Doptimize=ReleaseFast` then `t` runs plain `zig build test`). Tracked in [#4](https://github.com/chase-lambert/vigil/issues/4).
+
 ## Keybindings
 
 | Key | Action |
