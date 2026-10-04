@@ -1186,8 +1186,8 @@ test "parseZonName - name with underscores" {
 test "termToExitCode - all tags" {
     try std.testing.expectEqual(@as(?u8, 0), termToExitCode(.{ .exited = 0 }));
     try std.testing.expectEqual(@as(?u8, 42), termToExitCode(.{ .exited = 42 }));
-    try std.testing.expectEqual(@as(?u8, null), termToExitCode(.{ .signal = .KILL }));
-    try std.testing.expectEqual(@as(?u8, null), termToExitCode(.{ .stopped = .STOP }));
+    try std.testing.expectEqual(@as(?u8, null), termToExitCode(.{ .signal = .TERM }));
+    try std.testing.expectEqual(@as(?u8, null), termToExitCode(.{ .stopped = .TERM }));
     try std.testing.expectEqual(@as(?u8, null), termToExitCode(.{ .unknown = 9 }));
 }
 
